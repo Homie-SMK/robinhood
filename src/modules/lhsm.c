@@ -27,11 +27,14 @@
 #include "db_schema.h" /* for common robinhood types: entry_id_t,
                           stripe_info_t... */
 #include "status_manager.h"
+#include "lustre_extended_types.h"
+#include "realtime_record_reader_common.h"
 
 #include <stdbool.h>
 #include <glib.h>
 #include <sys/types.h>
 #include <sys/xattr.h>
+#include <sys/stat.h>
 
 /* config block name */
 #define LHSM_BLOCK "lhsm_config"
@@ -235,6 +238,48 @@ static int lhsm_remove(const entry_id_t *p_entry_id, attr_set_t *p_attrs,
     int rc = lhsm_action(HUA_REMOVE, p_entry_id, p_attrs, params);
     return rc;
 }
+
+static int lhsm_scan(const entry_id_t *p_entry_id, attr_set_t *p_attrs,
+                     const action_params_t *params, post_action_e *after,
+                     db_cb_func_t db_cb_fn, void *db_cb_arg)
+{
+    struct stat stbuf;
+    unsigned long long size;
+    pcc_item_t * item;
+    
+    int rc = Lustre_GetFullPath(p_entry_id, ATTR(p_attrs, fullpath), RBH_PATH_MAX);
+    if (rc == 0) {
+        ATTR_MASK_SET(p_attrs, fullpath);
+    } else if (rc != -ENOENT) {
+        DisplayLog(LVL_MAJOR, "PathCheck",
+                   "Failed to retrieve fullpath for " DFID ": %s",
+                   PFID(p_entry_id), strerror(-rc));
+        return rc;
+    }
+
+    // Get file stats
+    rc = stat(path, &stbuf);
+    if (rc != 0) {
+        perror("stat failed");
+        return rc;
+    }
+    size = (unsigned long long)stbuf.st_size;
+
+    item = create_new_cache_item_by_entry(p_entry_id, size);
+    rc = insert_to_cache(item);
+    if (rc != 0) {
+        DisplayLog(LVL_MAJOR, "CacheCheck",
+                   "Failed to insert item to cache " DFID ": %s",
+                   PFID(p_entry_id), strerror(-rc));
+    } else {
+        DisplayLog(LVL_DEBUG, "Successful Insert", 
+                   "FID: " DFID, PFID(p_entry_id));
+    }
+    
+    return rc;
+}
+
+
 
 /** set of managed status */
 typedef enum {
@@ -1141,6 +1186,8 @@ action_func_t mod_get_action(const char *action_name)
     else if (strcmp(action_name, "lhsm.hsm_remove") == 0
              || strcmp(action_name, "lhsm.remove") == 0)
         return lhsm_remove;
+    else if (strcmp(action_name, "lhsn.scan") == 0)
+        return lhsm_scan;
     else
         return NULL;
 }

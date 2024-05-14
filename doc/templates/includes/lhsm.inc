@@ -33,4 +33,13 @@ define_policy lhsm_remove {
     default_lru_sort_attr = rm_time;
 }
 
+define_policy lhsm_scan {
+    scope { type == file 
+            and (status == synchro or status == released or
+                 status == archiving or status == retrieving}
+    status_manager = lhsm(archive);
+    default_action = lhsm.scan;
+    default_lru_sort_attr = last_access;
+}
+
 # vim:expandtab:shiftwidth=4:tabstop=4:

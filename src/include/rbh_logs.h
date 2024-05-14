@@ -37,7 +37,7 @@ typedef enum {
 } log_level;
 
 typedef struct log_config__ {
-    log_level   debug_level;
+    log_level  debug_level;
     bool        force_debug_level; /**< do not take the configuration into
                                     *   account, use a value from cmd line */
     char        log_file[RBH_PATH_MAX];

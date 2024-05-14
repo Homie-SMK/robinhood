@@ -59,7 +59,7 @@ static void update_trigger_status(policy_info_t *pol, int i,
 /**
  * Function for checking that filesystem hasn't been unmounted
  */
-static bool CheckFSDevice(policy_info_t *pol)
+bool CheckFSDevice(policy_info_t *pol)
 {
     struct stat root_md;
 
@@ -1691,6 +1691,7 @@ struct targeted_run_arg {
     policy_info_t *policy;
     const policy_opt_t *options;
 };
+
 static void *targeted_run_thr(void *arg)
 {
     struct targeted_run_arg *targ = (struct targeted_run_arg *)arg;

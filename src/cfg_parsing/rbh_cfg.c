@@ -75,6 +75,7 @@ static int rbh_cfg_read_set(int module_mask, char *file_path, char *err_msg_out,
         strcpy(err_msg_out, rh_config_GetErrorMsg());
         return EINVAL;
     }
+
 #ifdef _DEBUG_PARSING
     rh_config_Print(stdout, syntax_tree);
 #endif

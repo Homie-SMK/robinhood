@@ -208,6 +208,7 @@ typedef struct policies_t {
     /* is there any policy that manages deleted entries? */
     unsigned int        manage_deleted:1;
 
+    int                 lhsm_scan_idx;
 } policies_t;
 extern struct policies_t policies;
 

@@ -154,6 +154,11 @@ AC_ARG_ENABLE([lustre], AS_HELP_STRING([--disable-lustre],
 AC_ARG_ENABLE([shook], AS_HELP_STRING([--disable-shook],
               [Disable build of shook specific modules]),
               [support_shook="$enableval"],[support_shook="yes"])
+AC_ARG_ENABLE([realtime-prof], AS_HELP_STRING([--disable-shook], 
+              [Enable realtime profiling]),
+              [], [enable_realtime_prof=no])
+if test x$enableval = xyes; then
+    AC_DEFINE(__DARSHAN_ENABLE_REALTIME_PROFILE, [], [Define if realtime profiling is enabled])
 
 # default input option is --scan
 INPUT_OPT="--scan"

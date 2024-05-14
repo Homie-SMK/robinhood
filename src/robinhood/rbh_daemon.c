@@ -32,6 +32,7 @@
 #include "fs_scan_main.h"
 #include "chglog_reader.h"
 #include "entry_processor.h"
+#include "realtime_record_reader_common.h"
 
 #include <unistd.h>
 #include <getopt.h>
@@ -61,6 +62,9 @@ static time_t boot_time;
 #define TGT_USAGE         267
 #define FORCE_ALL         268
 #define ALTER_DB          269
+#define REALTIME_RECORD   300
+#define PROMOTION         301
+#define EVICTION          302
 
 /* deprecated params */
 #define FORCE_OST_PURGE   270
@@ -79,6 +83,7 @@ static time_t boot_time;
 #define ACTION_MASK_PURGE               0x00000002
 #define ACTION_MASK_HANDLE_EVENTS       0x00000004
 #define ACTION_MASK_RUN_POLICIES        0x00000008
+#define ACTION_MASK_REALTIME_RECORD     0x00000010
 
 /* currently running modules */
 static int running_mask = 0;
@@ -99,6 +104,9 @@ static unsigned int     policy_run_cpt = 0;
 static struct option option_tab[] = {
 
     /* Actions selectors */
+    {"promotion", required_argument, NULL, PROMOTION},
+    {"eviction", required_argument, NULL, EVICTION},
+    {"realtime-record", optional_argument, NULL, REALTIME_RECORD},
     {"scan", optional_argument, NULL, 'S'},
     {"diff", required_argument, NULL, SHOW_DIFF},
 #ifdef HAVE_CHANGELOGS
@@ -216,6 +224,8 @@ typedef struct rbh_options {
 
     int            mdtidx;
     enum lmgr_init_flags db_flags;
+    char           promotion_policy_string[MAX_OPT_LEN];
+    char           eviction_policy_string[MAX_OPT_LEN];
 } rbh_options;
 
 #define TGT_NOT_SET   -1.0
@@ -495,6 +505,7 @@ static void dump_stats(lmgr_t *lmgr, const int *module_mask,
         FSScan_DumpStats();
         FSScan_StoreStats(lmgr);
     }
+    
 #ifdef HAVE_CHANGELOGS
     if (*module_mask & MODULE_MASK_EVENT_HDLR) {
         cl_reader_dump_stats();
@@ -866,6 +877,17 @@ static int rh_read_parameters(const char *bin, int argc, char **argv,
     while ((c = getopt_long(argc, argv, SHORT_OPT_STRING SHORT_OPT_DEPRECATED,
                             option_tab, &option_index)) != -1) {
         switch (c) {
+        case PROMOTION: 
+            strncpy(opt->promotion_policy_string, optarg, 
+                sizeof(opt->promotion_policy_string) - strlen(opt->promotion_policy_string - 1));
+            break;
+        case EVICTION:
+            strncpy(opt->eviction_policy_string, optarg, 
+                sizeof(opt->eviction_policy_string) - strlen(opt->eviction_policy_string - 1));
+            break;
+        case REALTIME_RECORD:
+            *action_mask |= ACTION_MASK_REALTIME_RECORD;
+            break;
         case PARTIAL_SCAN:
             fprintf(stderr,
                     "Warning: --partial-scan is deprecated. Use '--scan=<dir>' instead.\n");
@@ -1520,7 +1542,7 @@ static const char *read_next_policy_run(run_item_t **runs, unsigned int *count,
  */
 static int parse_policy_runs(run_item_t **runs, unsigned int *count,
                              const char *param_str,
-                             const policy_opt_t *default_opt)
+                             const policy_opt_t *default_opt, const policy_opt_t *lhsm_scan_policy_opt)
 {
     const char *curr;
     int i;
@@ -1538,6 +1560,10 @@ static int parse_policy_runs(run_item_t **runs, unsigned int *count,
             (*runs)[i].policy_index = i;
             (*runs)[i].run_opt = *default_opt;
             (*runs)[i].run_opt.flags = options.flags;
+        }
+        if(policies.lhsm_scan_idx != -1){
+            (*runs)[policies.lhsm_scan_idx].run_opt = *lhsm_scan_policy_opt;
+            (*runs)[policies.lhsm_scan_idx].run_opt.flags = options.flags;
         }
         return 0;
     }
@@ -1572,8 +1598,13 @@ int main(int argc, char **argv)
     run_item_t *runs = NULL;
     unsigned int run_count = 0;
 
-    policy_opt_t default_policy_opt = {.target = TGT_NONE };
+    policy_opt_t default_policy_opt = { .target = TGT_NONE };
+    policy_opt_t lhsm_scan_policy_opt = { .target = TGT_PCC };
     const char *bin;
+
+    head_t *head;
+    int *shm_fd;
+    pthread_rwlockattr_t *rwlockattr;
 
     bin = rh_basename(argv[0]);
 
@@ -1650,7 +1681,7 @@ int main(int argc, char **argv)
 
         /* Parse 'run' arguments. */
         rc = parse_policy_runs(&runs, &run_count, options.policy_string,
-                               &default_policy_opt);
+                               &default_policy_opt, &lhsm_scan_policy_opt);
         if (rc)
             exit(rc);
     } else if (!EMPTY_STRING(options.target_string)) {
@@ -1846,8 +1877,13 @@ int main(int argc, char **argv)
         running_mask = 0;
     }
 
-    if (!terminate_sig && action_mask & ACTION_MASK_RUN_POLICIES) {
-        int i;
+    if(!terminate_sig && action_mask & ACTION_MASK_REALTIME_RECORD) {
+        
+        create_promotion_candidate_list(p_list);
+        create_pcc_cache(cache);
+        
+        // Populate cache with file list already cached in PCC
+        
         /* allocate policy_run structure */
         policy_run = calloc(run_count, sizeof(policy_info_t));
         if (!policy_run) {
@@ -1856,7 +1892,57 @@ int main(int argc, char **argv)
         }
         policy_run_cpt = run_count;
 
+        unsigned int pol_idx = runs[policies.lhsm_scan_idx].policy_index;
+        policy_info_t *policy = &policy_run[pol_idx];
+        rc = policy_module_start(policy,
+                                 &policies.policy_list[policies.lhsm_scan_idx],
+                                 &run_cfgs.configs[pol_idx],
+                                 &runs[pol_idx].run_opt);
+
+        if (rc == ENOENT) {
+            DisplayLog(LVL_CRIT, MAIN_TAG, "Policy %s is disabled.",
+                        policies.policy_list[pol_idx].name);
+            continue;
+        } else if (rc) {
+            fprintf(stderr, "Error %d initializing Migration module\n", rc);
+            exit(rc);
+        } else {
+            DisplayLog(LVL_VERB, MAIN_TAG,
+                        "Policy %s successfully initialized",
+                        policies.policy_list[pol_idx].name);
+            /* Flush logs now, to have a trace in the logs */
+            FlushLogs();
+        }
+/*
+        for(int i = 0; i < policy->config->nb_threads; i++) {
+            pthread_join(policy->threads[i], NULL);
+        }
+*/
+        pthread_join(policy->trigger_thr, NULL);
+
+        /* start realtime record reader thread */        
+        realtime_record_reader_start(head, shm_fd, rwlockattr);
+    }
+
+    if (!terminate_sig && action_mask & ACTION_MASK_RUN_POLICIES) {
+        int i;
+        
+        if(policy_run == NULL) {
+            /* allocate policy_run structure */
+            policy_run = calloc(run_count, sizeof(policy_info_t));
+            if (!policy_run) {
+                DisplayLog(LVL_CRIT, MAIN_TAG, "Cannot allocate memory");
+                exit(1);
+            }
+            policy_run_cpt = run_count;
+        }
+
         for (i = 0; i < run_count; i++) {
+            
+            if(i == policies.lhsm_scan_idx) {
+                continue;
+            }
+
             unsigned int pol_idx = runs[i].policy_index;
 
             rc = policy_module_start(&policy_run[i],
@@ -1912,6 +1998,7 @@ int main(int argc, char **argv)
         stats_thr(&running_mask);
 
         /* should never return */
+        clean_head_file(head, shm_fd, rwlockattr);
         exit(1);
     } else {
         DisplayLog(LVL_MAJOR, MAIN_TAG, "All tasks done! Exiting.");

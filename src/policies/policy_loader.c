@@ -61,7 +61,7 @@
 #define CHK_TAG     "PolicyCheck"
 #define LOADER_TAG  "PolicyLoader"
 
-static const policies_t policy_initializer = { 0 };
+static const policies_t policy_initializer = { .lhsm_scan_idx = -1 };
 policies_t policies = { 0 };
 
 #define critical_err_check(_ptr_, _blkname_) do { if (!_ptr_) { \
@@ -296,6 +296,10 @@ static int parse_policy_decl(config_item_t config_blk, const char *block_name,
         return EINVAL;
     }
     rh_strncpy(policy->name, name, sizeof(policy->name));
+
+    if (strcasecmp(name, "lhsm_scan") == 0) {
+        pol->lhsm_scan_idx = pols->policy_count;
+    }
 
     /* read and parse default_action */
     rc = GetStringParam(config_blk, block_name, "default_action",

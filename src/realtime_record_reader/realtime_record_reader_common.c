@@ -118,7 +118,7 @@ void free_promotion_candidate_list(promotion_candidate_list_t *p_list) {
     free(cache);
 }
 
-pcc_item_t* create_new_cache_item(const entry_id_t *p_id, unsigned long long size) {
+static pcc_item_t* create_new_cache_item(const entry_id_t *p_id, unsigned long long size) {
     
     pcc_item_t* item = (pcc_item_t*)malloc(sizeof pcc_item_t);
     if (item == NULL) {
@@ -157,13 +157,6 @@ promotion_candidate_item_t* create_new_promotion_candidate_item(const entry_id_t
 
     return item;
 }
-
-typedef enum {
-    PASS_EOL,
-    PASS_LIMIT,
-    PASS_ABORTED,
-    PASS_ERROR,
-} pass_status_e;
 
 // TODO need to add pcc_path field in global_config
 static unsigned long long get_pcc_capacity_remaining()
@@ -221,7 +214,7 @@ static unsigned long long get_right_wm_capacity() {
     return (stfs->f_blocks / 100) * (100 - EVICTION_WM);
 }
 
-unsigned int hash_with_fid(const struct entry_id_t *fid) {
+static unsigned int hash_with_fid(const struct entry_id_t *fid) {
     unsigned long hash = 5381;
     
     // Combine the sequence, object ID, and version fields into the hash
@@ -233,7 +226,7 @@ unsigned int hash_with_fid(const struct entry_id_t *fid) {
     return hash % HASH_SIZE;
 }
 
-int insert_to_cache(pcc_t *cache, pcc_item_t *item) {
+static int insert_to_cache(pcc_t *cache, pcc_item_t *item) {
     
     if (!cache || !item) {
         fprintf(stderr, "Invalid cache or item pointer\n");
@@ -264,7 +257,7 @@ int insert_to_cache(pcc_t *cache, pcc_item_t *item) {
     return 0;
 }
 
-int remove_item_from_cache(pcc_t *cache, pcc_item_t *item) {
+static int remove_item_from_cache(pcc_t *cache, pcc_item_t *item) {
     if (item == NULL) return;  // Safety check
 
     // Disconnect the item from the list
@@ -290,7 +283,7 @@ int remove_item_from_cache(pcc_t *cache, pcc_item_t *item) {
     free(item)
 }
 
-void remove_item_from_promotion_candidate_list(promotion_candidate_list_t *p_list, promotion_candidate_item_t *item) {
+static void remove_item_from_promotion_candidate_list(promotion_candidate_list_t *p_list, promotion_candidate_item_t *item) {
     if (item == NULL) return;  // Safety check
 
     // Disconnect the item from the list
@@ -316,7 +309,7 @@ void remove_item_from_promotion_candidate_list(promotion_candidate_list_t *p_lis
     free(item);
 }
 
-void move_to_front(pcc_item_t* item) {
+static void move_to_front(pcc_item_t* item) {
     if (cache->head == item) return;  // Already at the front
 
     // Remove from current position
@@ -332,7 +325,7 @@ void move_to_front(pcc_item_t* item) {
     if (cache->tail == NULL) cache->tail = item;  // First node added
 }
 
-int insert_to_promotion_list(promotion_candidate_list_t *p_list, promotion_candidate_item_t *item) {
+static int insert_to_promotion_list(promotion_candidate_list_t *p_list, promotion_candidate_item_t *item) {
     
     if (!p_list || !item) {
         fprintf(stderr, "Invalid cache or item pointer\n");
@@ -363,7 +356,7 @@ int insert_to_promotion_list(promotion_candidate_list_t *p_list, promotion_candi
     return 0;
 }
 
-void handle_open(entry_id_t fid, realtime_record_t record) {
+static void handle_open(entry_id_t fid, realtime_record_t record) {
     
     pcc_item_t *item = cache->hashtable[hash_with_fid(fid)];
     int rc;
@@ -414,7 +407,7 @@ void handle_open(entry_id_t fid, realtime_record_t record) {
     return;
 }
 
-void handle_read(entry_id_t fid, realtime_record_t record) {
+static void handle_read(entry_id_t fid, realtime_record_t record) {
     
     pcc_item_t *item = cache->hashtable[hash_with_fid(fid)];
 
@@ -459,7 +452,7 @@ void handle_read(entry_id_t fid, realtime_record_t record) {
     return;
 }
 
-void handle_write(entry_id_t fid, realtime_record_t record) {
+static void handle_write(entry_id_t fid, realtime_record_t record) {
     
     pcc_item_t *item = cache->hashtable[hash_with_fid(fid)];
     
@@ -507,7 +500,7 @@ void handle_write(entry_id_t fid, realtime_record_t record) {
     return;
 }
 
-void handle_close(entry_id_t fid, realtime_record_t record) {
+static void handle_close(entry_id_t fid, realtime_record_t record) {
     
     pcc_item_t *item = cache->hashtable[hash_with_fid(fid)];
     
@@ -552,7 +545,7 @@ void handle_close(entry_id_t fid, realtime_record_t record) {
     return;
 }
 
-void handle_aio_read(entry_id_t fid, realtime_record_t record) {
+static void handle_aio_read(entry_id_t fid, realtime_record_t record) {
     
     pcc_item_t *item = cache->hashtable[hash_with_fid(fid)];
     
@@ -598,7 +591,7 @@ void handle_aio_read(entry_id_t fid, realtime_record_t record) {
     return;
 }
 
-void handle_aio_write(entry_id_t fid, realtime_record_t record) {
+static void handle_aio_write(entry_id_t fid, realtime_record_t record) {
     
     pcc_item_t *item = cache->hashtable[hash_with_fid(fid)];
     
@@ -644,7 +637,7 @@ void handle_aio_write(entry_id_t fid, realtime_record_t record) {
     return;
 }
 
-void handle_aio_return(entry_id_t fid, realtime_record_t record) {
+static void handle_aio_return(entry_id_t fid, realtime_record_t record) {
     
     pcc_item_t *item = cache->hashtable[hash_with_fid(fid)];
     
@@ -699,7 +692,7 @@ void handle_aio_return(entry_id_t fid, realtime_record_t record) {
     return;
 }
 
-void *realtime_record_reader_thr(void *arg) {
+static void *realtime_record_reader_thr(void *arg) {
     
     head_t *head = (head_t *)arg;
     int rc;
@@ -804,7 +797,7 @@ void *realtime_record_reader_thr(void *arg) {
     return NULL;
 }
 
-void promotion_thr(void *arg) {
+static void promotion_thr(void *arg) {
     
     promotion_candidate_list_t *tmp_list;
     promotion_candidate_item_t *fk_item;
@@ -868,7 +861,7 @@ void promotion_thr(void *arg) {
     }
 }
 
-void eviction_thr(void *arg) {
+static void eviction_thr(void *arg) {
 
     pcc_t *tmp_cache;
     pcc_item_t *fk_item;

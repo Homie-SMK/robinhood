@@ -130,5 +130,13 @@ typedef struct pcc {
 extern pcc_t *cache;
 extern promotion_candidate_list_t *p_list;
 
-void realtime_record_reader_start();
+void realtime_record_reader_start(head_t *, int *, pthread_rwlockattr_t *);
+void create_head_file(head_t *, int *, pthread_rwlockattr_t *);
+void clean_head_file(head_t *, int *, pthread_rwlockattr_t *);
+void create_pcc_cache(pcc_t *);
+void free_cache(pcc_t *);
+void create_promotion_candidate_list(promotion_candidate_list_t *);
+void free_promotion_candidate_list(promotion_candidate_list_t *);
+
+
 #endif

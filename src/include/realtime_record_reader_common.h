@@ -82,7 +82,7 @@ typedef struct head {
 } head_t;
 
 typedef struct sm_segment {
-    unsigned int seg_idx;
+    unsigned int rr_idx;
     realtime_record_t realtime_record_buf[RR_BUF_SIZE];
     unsigned int role:1; 
     pthread_mutex_t l;

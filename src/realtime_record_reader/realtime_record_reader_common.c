@@ -845,9 +845,19 @@ static void *realtime_record_reader_thr(void *arg)
                         break;    
                 }
             }
-
-            // Unlock the segment after processing
-            // pthread_mutex_unlock(&consumer_seg->l);
+            
+            pthread_mutex_lock(&consumer_seg->l);
+            consumer_seg->role = PRODUCER;
+            pthread_mutex_lock(&consumer_seg->l);
+            
+            pthread_rwlock_wrlock(&head->rwlock);
+            head->curr_consumer_seg = NULL;
+            pthread_mutex_lock(&consumer_seg->next->l);
+            if(consumer_seg->next->role == CONSUMER) {
+                head->curr_consumer_seg = consumer_seg->next;
+            }
+            pthread_mutex_unlock(&consumer_seg->next->l);
+            pthread_rwlock_unlock(&head->rwlock);
         }
     }
 

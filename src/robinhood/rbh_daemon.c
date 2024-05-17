@@ -97,6 +97,9 @@ static uint64_t policy_run_mask = 0LL;
 static policy_info_t   *policy_run = NULL;
 static unsigned int     policy_run_cpt = 0;
 
+promotion_candidate_list_t *p_list = NULL;
+pcc_t *cache = NULL; 
+
 /* Array of options for getopt_long().
  * Each record consists of: {const char *name, int has_arg, int *flag, int val}
  */
@@ -879,11 +882,11 @@ static int rh_read_parameters(const char *bin, int argc, char **argv,
         switch (c) {
         case PROMOTION: 
             strncpy(opt->promotion_policy_string, optarg, 
-                sizeof(opt->promotion_policy_string) - strlen(opt->promotion_policy_string - 1));
+                sizeof(opt->promotion_policy_string) - strlen(opt->promotion_policy_string) - 1);
             break;
         case EVICTION:
             strncpy(opt->eviction_policy_string, optarg, 
-                sizeof(opt->eviction_policy_string) - strlen(opt->eviction_policy_string - 1));
+                sizeof(opt->eviction_policy_string) - strlen(opt->eviction_policy_string) - 1);
             break;
         case REALTIME_RECORD:
             *action_mask |= ACTION_MASK_REALTIME_RECORD;
@@ -1602,9 +1605,9 @@ int main(int argc, char **argv)
     policy_opt_t lhsm_scan_policy_opt = { .target = TGT_PCC };
     const char *bin;
 
-    head_t *head;
-    int *shm_fd;
-    pthread_rwlockattr_t *rwlockattr;
+    head_t *head = NULL;
+    int *shm_fd = NULL;
+    pthread_rwlockattr_t *rwlockattr = NULL;
 
     bin = rh_basename(argv[0]);
 
@@ -1902,7 +1905,6 @@ int main(int argc, char **argv)
         if (rc == ENOENT) {
             DisplayLog(LVL_CRIT, MAIN_TAG, "Policy %s is disabled.",
                         policies.policy_list[pol_idx].name);
-            continue;
         } else if (rc) {
             fprintf(stderr, "Error %d initializing Migration module\n", rc);
             exit(rc);

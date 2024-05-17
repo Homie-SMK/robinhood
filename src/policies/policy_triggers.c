@@ -59,7 +59,7 @@ static void update_trigger_status(policy_info_t *pol, int i,
 /**
  * Function for checking that filesystem hasn't been unmounted
  */
-bool CheckFSDevice(policy_info_t *pol)
+static bool CheckFSDevice(policy_info_t *pol)
 {
     struct stat root_md;
 
@@ -920,6 +920,9 @@ static int trig_target_it(target_iterator_t *it, policy_info_t *pol,
         /* check listed pools */
         it->info_u.next_pool_index = 0;
         break;
+    case TGT_PCC:
+        it->info_u.is_checked = 0;
+        break;
 #endif
     case TGT_USER:
     case TGT_GROUP:
@@ -1063,6 +1066,8 @@ static int trig_target_next(target_iterator_t *it, target_u *tgt,
         }
         return ENOENT;
         break;
+    case TGT_PCC:
+        return 0;
 #endif
     case TGT_USER:
     case TGT_GROUP:

@@ -6,22 +6,19 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <limits.h>
-#include <stdatomic.h>
 #include <errno.h>
 #include <sysexits.h>
 
 #include "realtime_record_reader_common.h"
-#include "lustre_extended_types.h"
-#include "policy_run.h"
-#include "run_policies.h"
 #include "list_mgr.h"
 
 // Create HEAD shared memory object
-void create_head_file(head_t *head, int *shm_fd, pthread_rwlockattr_t *attr) {
+void create_head_file(head_t *head, int *shm_fd, pthread_rwlockattr_t *attr) 
+{
 
     // Create the shared memory object
     *shm_fd = shm_open("HEAD", O_CREAT | O_RDWR, 0666);
-    if (shm_fd == -1) {
+    if (*shm_fd == -1) {
         perror("shm_open");
         exit(EX_OSERR);
     }
@@ -56,124 +53,32 @@ void create_head_file(head_t *head, int *shm_fd, pthread_rwlockattr_t *attr) {
 }
 
 // Cleanup HEAD shared memory object
-void clean_head_file(head_t *head, int *shm_fd, pthread_rwlockattr_t *attr) {
-
+void clean_head_file(head_t *head, int *shm_fd, pthread_rwlockattr_t *attr) 
+{
     pthread_rwlock_destroy(&head->rwlock);
-    pthread_rwlockattr_destroy(&attr);
+    pthread_rwlockattr_destroy(attr);
     munmap(head, sizeof(head_t));
-    close(shm_fd);
+    close(*shm_fd);
     shm_unlink("HEAD");
 
     return;
 }
 
-void create_pcc_cache(pcc_t * cache) {
-
-    cache = (pcc_t*)malloc(sizeof(pcc_t));
-    if (cache == NULL) {
-        perror("Failed to allocate memory for LRU Cache");
-        exit(EXIT_FAILURE);
-    }
-    pthread_mutex_init(cache->lock, NULL);
-    cache->head = cache->tail = NULL;
-    memset(cache->hashtable, 0, sizeof(cache->hashtable));
-    cache->capacity_remaining = get_pcc_capacity_remaining();
-
-    return;
-}
-
-void free_cache(pcc_t* cache) {
-    pcc_item_t* current = cache->head;
-    while (current) {
-        pcc_item_t* temp = current;
-        current = current->next;
-        free(temp);
-    }
-    pthread_mutex_destroy(&cache->lock);
-    free(cache);
-}
-
-void create_promotion_candidate_list(promotion_candidate_list_t *p_list) {
-
-    p_list = (promotion_candidate_list_t *)malloc(sizeof(promotion_candidate_list_t));
-    if (promotion_candidate_list_t == NULL) {
-        perror("Failed to allocate memory for promotion candidate list");
-        exit(EXIT_FAILURE);
-    }
-    p_list->head = p_list->tail = NULL;
-    memset(p_list->hashtable, 0, sizeof(p_list->hashtable)); 
-    pthread_mutex_init(&p_list->lock, NULL);
-
-    return;
-}
-
-void free_promotion_candidate_list(promotion_candidate_list_t *p_list) {
-    promotion_candidate_item_t* current = p_list->head;
-    while(current) {
-        promotion_candidate_item_t* temp = current;
-        current = current->next;
-        free(temp);
-    }
-    pthread_mutex_destroy(&p_list->lock);
-    free(cache);
-}
-
-static pcc_item_t* create_new_cache_item(const entry_id_t *p_id, unsigned long long size) {
-    
-    pcc_item_t* item = (pcc_item_t*)malloc(sizeof pcc_item_t);
-    if (item == NULL) {
-        perror("Failed to allocate memory for item");
-        exit(EXIT_FAILURE);
-    }
-
-    item->fid = *p_id;
-    item->size = size;
-    item->rbyte = 0;
-    item->wbyte = 0;
-    item->evictable = true;
-    item->prev = item->next = NULL;
-    item->hash_prev = item->hash_next = NULL;
-    item->is_aio_read = true;
-
-    return item;
-}
-
-promotion_candidate_item_t* create_new_promotion_candidate_item(const entry_id_t *p_id, unsigned long long size) {
-
-    promotion_candidate_item_t *item = (promotion_candidate_item_t*)malloc(sizeof promotion_candidate_item_t);
-    if (item == NULL) {
-        perror("Failed to allocate memory for item");
-        exit(EXIT_FAILURE);
-    }
-
-    item->fid = *p_id;
-    item->size = size;
-    item->rbyte = 0;
-    item->wbyte = 0;
-    item->evictable = true;
-    item->prev = item->next = NULL;
-    item->hash_prev = item->hash_next = NULL;
-    item->is_aio_read = true;
-
-    return item;
-}
 
 // TODO need to add pcc_path field in global_config
-static unsigned long long get_pcc_capacity_remaining()
+static unsigned long long get_pcc_capacity_remaining(void)
 {
-    struct statfs *stfs;
+    struct statfs *stfs = NULL;
     char traverse_path[RBH_PATH_MAX];
     int rc;
 
     //rc = snprintf(traverse_path, RBH_PATH_MAX, "%s/.", global_config.fs_path);
     rc = snprintf(traverse_path, RBH_PATH_MAX, "/mnt/nvme/.");
-    /*
     if (rc >= RBH_PATH_MAX) {
-        DisplayLog(LVL_MAJOR, tag(pol), "Path too long: %s/.",
+        DisplayLog(LVL_MAJOR, "PCCpathTooLong", "Path too long: %s/.",
                    global_config.fs_path);
         return ENAMETOOLONG;
     }
-    */
 /*
     if (!CheckFSDevice(pol))
         return ENODEV;
@@ -187,7 +92,7 @@ static unsigned long long get_pcc_capacity_remaining()
                    global_config.fs_path, err, strerror(err));
         return err;
 */
-        DisplayLog(LVL_CRIT, tag(pol),
+        DisplayLog(LVL_CRIT, "PCCstatfsError",
                    "Could not make a 'df' on /mnt/nvme: error %d: %s",
                    err, strerror(err));
         return err;
@@ -196,16 +101,115 @@ static unsigned long long get_pcc_capacity_remaining()
     return stfs->f_bavail * stfs->f_bsize;
 }
 
-static unsigned long long get_right_wm_capacity() {
-    struct statfs *stfs;
+void create_pcc_cache(pcc_t * cache) 
+{
+    cache = (pcc_t*)malloc(sizeof(pcc_t));
+    if (cache == NULL) {
+        perror("Failed to allocate memory for LRU Cache");
+        exit(EXIT_FAILURE);
+    }
+    pthread_mutex_init(&cache->lock, NULL);
+    cache->head = cache->tail = NULL;
+    memset(cache->hashtable, 0, sizeof(cache->hashtable));
+    cache->capacity_remaining = get_pcc_capacity_remaining();
+
+    return;
+}
+
+void free_cache(pcc_t* cache) 
+{
+    pcc_item_t* current = cache->head;
+    while (current) {
+        pcc_item_t* temp = current;
+        current = current->next;
+        free(temp);
+    }
+    pthread_mutex_destroy(&cache->lock);
+    free(cache);
+}
+
+void create_promotion_candidate_list(promotion_candidate_list_t *p_list) 
+{
+    p_list = (promotion_candidate_list_t *)malloc(sizeof(promotion_candidate_list_t));
+    if (p_list == NULL) {
+        perror("Failed to allocate memory for promotion candidate list");
+        exit(EXIT_FAILURE);
+    }
+    p_list->head = p_list->tail = NULL;
+    memset(p_list->hashtable, 0, sizeof(p_list->hashtable)); 
+    pthread_mutex_init(&p_list->lock, NULL);
+
+    return;
+}
+
+void free_promotion_candidate_list(promotion_candidate_list_t *p_list) 
+{
+    promotion_candidate_item_t* current = p_list->head;
+    while(current) {
+        promotion_candidate_item_t* temp = current;
+        current = current->next;
+        free(temp);
+    }
+    pthread_mutex_destroy(&p_list->lock);
+    free(cache);
+}
+
+pcc_item_t* create_new_cache_item(const entry_id_t *p_id, unsigned long long size) 
+{
+    pcc_item_t* item = (pcc_item_t*)malloc(sizeof(pcc_item_t));
+    if (item == NULL) {
+        perror("Failed to allocate memory for item");
+        exit(EXIT_FAILURE);
+    }
+
+    item->fid = *p_id;
+    item->size = size;
+    item->rbyte = 0;
+    item->wbyte = 0;
+    item->evictable = true;
+    item->prev = item->next = NULL;
+    item->hash_prev = item->hash_next = NULL;
+    item->is_aio_read = true;
+
+    return item;
+}
+
+static promotion_candidate_item_t* create_new_promotion_candidate_item(const entry_id_t *p_id, unsigned long long size) 
+{
+    promotion_candidate_item_t *item = (promotion_candidate_item_t*)malloc(sizeof(promotion_candidate_item_t));
+    if (item == NULL) {
+        perror("Failed to allocate memory for item");
+        return NULL;
+    }
+
+    item->fid = *p_id;
+    item->size = size;
+    item->rbyte = 0;
+    item->wbyte = 0;
+    item->promotable = true;
+    item->prev = item->next = NULL;
+    item->hash_prev = item->hash_next = NULL;
+    item->is_aio_read = true;
+
+    return item;
+}
+
+static unsigned long long get_right_wm_capacity(void) 
+{
+    struct statfs *stfs = NULL;
     char traverse_path[RBH_PATH_MAX];
     int rc;
 
     rc = snprintf(traverse_path, RBH_PATH_MAX, "/mnt/nvme/.");
+    if (rc >= RBH_PATH_MAX) {
+        DisplayLog(LVL_MAJOR, "PCCpathTooLong", "Path too long: %s/.",
+                   global_config.fs_path);
+        return ENAMETOOLONG;
+    }
 
     if (statfs(traverse_path, stfs) != 0) {
         int err = errno;
-        DisplayLog(LVL_CRIT, tag(pol),
+        DisplayLog(LVL_CRIT, "PCCstatfsError",
                    "Could not make a 'df' on /mnt/nvme: error %d: %s",
                    err, strerror(err));
         return err;
@@ -214,20 +218,28 @@ static unsigned long long get_right_wm_capacity() {
     return (stfs->f_blocks / 100) * (100 - EVICTION_WM);
 }
 
-static unsigned int hash_with_fid(const struct entry_id_t *fid) {
+static unsigned int hash_with_fid(const entry_id_t *fid) 
+{
     unsigned long hash = 5381;
-    
+
+#if (defined(_LUSTRE) && defined(_HAVE_FID))
     // Combine the sequence, object ID, and version fields into the hash
-    hash = ((hash << 5) + hash) ^ (fid->f_seq & 0xFFFFFFFF);        // Low part of sequence
-    hash = ((hash << 5) + hash) ^ (fid->f_seq >> 32);               // High part of sequence
-    hash = ((hash << 5) + hash) ^ fid->f_oid;                       // Object ID
-    hash = ((hash << 5) + hash) ^ fid->f_ver;                       // Version
+    hash = ((hash << 5) + hash) ^ (fid->f_seq & 0xFFFFFFFF);  // Low part of sequence
+    hash = ((hash << 5) + hash) ^ (fid->f_seq >> 32);         // High part of sequence
+    hash = ((hash << 5) + hash) ^ fid->f_oid;                // Object ID
+    hash = ((hash << 5) + hash) ^ fid->f_ver;                // Version
+#else
+    // Combine fs_key and inode into the hash
+    hash = ((hash << 5) + hash) ^ (fid->fs_key & 0xFFFFFFFF); // Low part of fs_key
+    hash = ((hash << 5) + hash) ^ (fid->fs_key >> 32);       // High part of fs_key
+    hash = ((hash << 5) + hash) ^ fid->inode;                // Inode number
+#endif
 
     return hash % HASH_SIZE;
 }
 
-static int insert_to_cache(pcc_t *cache, pcc_item_t *item) {
-    
+int insert_to_cache(pcc_t *cache, pcc_item_t *item) 
+{
     if (!cache || !item) {
         fprintf(stderr, "Invalid cache or item pointer\n");
         return -1;
@@ -257,8 +269,9 @@ static int insert_to_cache(pcc_t *cache, pcc_item_t *item) {
     return 0;
 }
 
-static int remove_item_from_cache(pcc_t *cache, pcc_item_t *item) {
-    if (item == NULL) return;  // Safety check
+static int remove_item_from_cache(pcc_t *cache, pcc_item_t *item) 
+{
+    if (item == NULL) return -1;  // Safety check
 
     // Disconnect the item from the list
     if (item->prev) {
@@ -280,11 +293,13 @@ static int remove_item_from_cache(pcc_t *cache, pcc_item_t *item) {
     item->prev = NULL;
 
     // Assuming the cache or some mechanism owns the item, free it
-    free(item)
+    free(item);
+    return 0;
 }
 
-static void remove_item_from_promotion_candidate_list(promotion_candidate_list_t *p_list, promotion_candidate_item_t *item) {
-    if (item == NULL) return;  // Safety check
+static int remove_item_from_promotion_candidate_list(promotion_candidate_list_t *p_list, promotion_candidate_item_t *item) 
+{
+    if (item == NULL) return -1;  // Safety check
 
     // Disconnect the item from the list
     if (item->prev) {
@@ -307,9 +322,11 @@ static void remove_item_from_promotion_candidate_list(promotion_candidate_list_t
 
     // Assuming the cache or some mechanism owns the item, free it
     free(item);
+    return 0;
 }
 
-static void move_to_front(pcc_item_t* item) {
+static void move_to_front(pcc_item_t* item) 
+{
     if (cache->head == item) return;  // Already at the front
 
     // Remove from current position
@@ -325,8 +342,8 @@ static void move_to_front(pcc_item_t* item) {
     if (cache->tail == NULL) cache->tail = item;  // First node added
 }
 
-static int insert_to_promotion_list(promotion_candidate_list_t *p_list, promotion_candidate_item_t *item) {
-    
+static int insert_to_promotion_list(promotion_candidate_list_t *p_list, promotion_candidate_item_t *item) 
+{
     if (!p_list || !item) {
         fprintf(stderr, "Invalid cache or item pointer\n");
         return -1;
@@ -356,14 +373,15 @@ static int insert_to_promotion_list(promotion_candidate_list_t *p_list, promotio
     return 0;
 }
 
-static void handle_open(entry_id_t fid, realtime_record_t record) {
-    
-    pcc_item_t *item = cache->hashtable[hash_with_fid(fid)];
-    int rc;
+static int handle_open(entry_id_t fid, realtime_record_t record) 
+{
+    pcc_item_t *item = cache->hashtable[hash_with_fid(&fid)];
+    promotion_candidate_item_t *candidate, *p_item;
+    int rc = 0;
 
     if (item) {
         
-        while(!entry_id_equal(fid, item->fid)) {
+        while(!entry_id_equal(&fid, &item->fid)) {
             item = item->hash_next;
             if(item == NULL) {
                 goto not_in_cache;
@@ -371,48 +389,54 @@ static void handle_open(entry_id_t fid, realtime_record_t record) {
         }
 
         pthread_mutex_lock(&cache->lock);
-        &item->evictable = false;
+        item->evictable = false;
         pthread_mutex_unlock(&cache->lock);
         
-        return 0;
+        return rc;
     }
 
  not_in_cache:
-    promotion_candidate_item_t *candidate = p_list->hashtable[hash_with_fid(fid)];
+    candidate = p_list->hashtable[hash_with_fid(&fid)];
 
     if(candidate) {
 
-        while(!entry_id_equal(fid, candidate->fid)) {
+        while(!entry_id_equal(&fid, &candidate->fid)) {
             candidate = candidate->hash_next;
             if(candidate == NULL) {
                 goto not_in_list;
             }
         }
 
-        pthread_mutex_lock(&list->lock);
-        &candidate->promotable = false;
-        pthread_mutex_unlock(&list->lock);
+        pthread_mutex_lock(&p_list->lock);
+        candidate->promotable = false;
+        pthread_mutex_unlock(&p_list->lock);
 
-        return 0;
+        return rc;
     }
 
  not_in_list:
-    promotion_candidate_item_t *item = create_new_promotion_candidate_item(fid, record.size);    
-    rc = insert_to_promotion_list(p_list, item);
+    p_item = create_new_promotion_candidate_item(&fid, record.size);    
+    if(!p_item) {
+        DisplayLog(LVL_CRIT, "NewItemCreationFailure",
+                "Error occured while creating new item " DFID , PFID(&fid));
+        rc = -1;
+    }
+    rc = insert_to_promotion_list(p_list, p_item);
     if (rc != 0) {
         DisplayLog(LVL_DEBUG, "add_to_promotion_list_error",
-                    "Error occured while adding " DFID "to promotion list", PFID(fid));
+                    "Error occured while adding " DFID "to promotion list", PFID(&fid));
     }
 
-    return;
+    return rc;
 }
 
-static void handle_read(entry_id_t fid, realtime_record_t record) {
-    
-    pcc_item_t *item = cache->hashtable[hash_with_fid(fid)];
+static int handle_read(entry_id_t fid, realtime_record_t record) 
+{
+    pcc_item_t *item = cache->hashtable[hash_with_fid(&fid)];
+    promotion_candidate_item_t *candidate;
 
     if (item) {
-        while(!entry_id_equal(fid, item->fid)) {
+        while(!entry_id_equal(&fid, &item->fid)) {
             item = item->hash_next;
             if(item == NULL) {
                 goto not_in_cache;
@@ -420,45 +444,46 @@ static void handle_read(entry_id_t fid, realtime_record_t record) {
         }
 
         pthread_mutex_lock(&cache->lock);
-        &item->rbyte += record.size;
+        item->rbyte += record.size;
         move_to_front(item);
         pthread_mutex_unlock(&cache->lock);
         
-        return;
+        return 0;
     }
     
  not_in_cache:   
-    promotion_candidate_item_t *candidate = p_list->hashtable[hash_with_fid(fid)];
+    candidate = p_list->hashtable[hash_with_fid(&fid)];
     
     if(candidate) {
 
-        while(!entry_id_equal(fid, candidate->fid)) {
+        while(!entry_id_equal(&fid, &candidate->fid)) {
             candidate = candidate->hash_next;
             if(candidate == NULL) {
                 goto not_in_list;
             }
         }
 
-        pthread_mutex_lock(&list->lock);
-        &candidate->rbyte += record.size;
-        pthread_mutex_unlock(&list->lock);
+        pthread_mutex_lock(&p_list->lock);
+        candidate->rbyte += record.size;
+        pthread_mutex_unlock(&p_list->lock);
 
-        return;
+        return 0;
     }
 
  not_in_list:
-    DisplayLog(LVL_DEBUG, "handle_read_error",
-                    "Error occured while handling read type record: " DFID "", PFID(fid));
-    return;
+    DisplayLog(LVL_CRIT, "handle_read_error",
+                    "Error occured while handling read type record: " DFID "", PFID(&fid));
+    return -1;
 }
 
-static void handle_write(entry_id_t fid, realtime_record_t record) {
-    
-    pcc_item_t *item = cache->hashtable[hash_with_fid(fid)];
+static int handle_write(entry_id_t fid, realtime_record_t record) 
+{
+    pcc_item_t *item = cache->hashtable[hash_with_fid(&fid)];
+    promotion_candidate_item_t *candidate;
     
     if (item) {
 
-        while(!entry_id_equal(fid, item->fid)) {
+        while(!entry_id_equal(&fid, &item->fid)) {
             item = item->hash_next;
             if(item == NULL) {
                 goto not_in_cache;
@@ -466,47 +491,48 @@ static void handle_write(entry_id_t fid, realtime_record_t record) {
         }
 
         pthread_mutex_lock(&cache->lock);
-        &item->wbyte += record.size;
-        &item->size += record.size;
+        item->wbyte += record.size;
+        item->size += record.size;
         move_to_front(item);
         pthread_mutex_unlock(&cache->lock);
 
-        return;
+        return 0;
     }
 
  not_in_cache:
-    promotion_candidate_item_t *candidate = p_list->hashtable[hash_with_fid(fid)];
+    candidate = p_list->hashtable[hash_with_fid(&fid)];
     
     if (candidate) {
 
-        while(!entry_id_equal(fid, candidate->fid)) {
+        while(!entry_id_equal(&fid, &candidate->fid)) {
             candidate = candidate->hash_next;
             if(candidate == NULL) {
                 goto not_in_list;
             }
         }
 
-        pthread_mutex_lock(&list->lock);
-        &candidate->wbyte += record.size;
-        &candidate->size += record.size;
-        pthread_mutex_unlock(&list->lock);
+        pthread_mutex_lock(&p_list->lock);
+        candidate->wbyte += record.size;
+        candidate->size += record.size;
+        pthread_mutex_unlock(&p_list->lock);
 
-        return;
+        return 0;
     }
  
  not_in_list:
     DisplayLog(LVL_DEBUG, "handle_write_error",
-                    "Error occured while handling write type record: " DFID "", PFID(fid));
-    return;
+                    "Error occured while handling write type record: " DFID "", PFID(&fid));
+    return -1;
 }
 
-static void handle_close(entry_id_t fid, realtime_record_t record) {
-    
-    pcc_item_t *item = cache->hashtable[hash_with_fid(fid)];
+static int handle_close(entry_id_t fid, realtime_record_t record) 
+{
+    pcc_item_t *item = cache->hashtable[hash_with_fid(&fid)];
+    promotion_candidate_item_t *candidate;
     
     if (item) {
 
-        while(!entry_id_equal(fid, item->fid)) {
+        while(!entry_id_equal(&fid, &item->fid)) {
             item = item->hash_next;
             if(item == NULL) {
                 goto not_in_cache;
@@ -514,44 +540,45 @@ static void handle_close(entry_id_t fid, realtime_record_t record) {
         }
 
         pthread_mutex_lock(&cache->lock);
-        &item->evictable = true;
+        item->evictable = true;
         pthread_mutex_unlock(&cache->lock);
 
-        return;
+        return 0;
     }
 
  not_in_cache:
-    promotion_candidate_item_t *candidate = p_list->hashtable[hash_with_fid(fid)];
+    candidate = p_list->hashtable[hash_with_fid(&fid)];
     
     if (candidate) {
 
-        while(!entry_id_equal(fid, candidate->fid)) {
+        while(!entry_id_equal(&fid, &candidate->fid)) {
             candidate = candidate->hash_next;
             if(candidate == NULL) {
                 goto not_in_list;
             }
         }
 
-        pthread_mutex_lock(&list->lock);
-        &candidate->promotable = true;
-        pthread_mutex_unlock(&list->lock);
+        pthread_mutex_lock(&p_list->lock);
+        candidate->promotable = true;
+        pthread_mutex_unlock(&p_list->lock);
 
-        return;
+        return 0;
     }
  
  not_in_list:
     DisplayLog(LVL_DEBUG, "handle_close_error",
-                    "Error occured while handling close type record: " DFID "", PFID(fid));
-    return;
+                    "Error occured while handling close type record: " DFID "", PFID(&fid));
+    return -1;
 }
 
-static void handle_aio_read(entry_id_t fid, realtime_record_t record) {
-    
-    pcc_item_t *item = cache->hashtable[hash_with_fid(fid)];
+static int handle_aio_read(entry_id_t fid, realtime_record_t record) 
+{
+    pcc_item_t *item = cache->hashtable[hash_with_fid(&fid)];
+     promotion_candidate_item_t *candidate;
     
     if (item) {
 
-        while(!entry_id_equal(fid, item->fid)) {
+        while(!entry_id_equal(&fid, &item->fid)) {
             item = item->hash_next;
             if(item == NULL) {
                 goto not_in_cache;
@@ -559,45 +586,46 @@ static void handle_aio_read(entry_id_t fid, realtime_record_t record) {
         }
 
         pthread_mutex_lock(&cache->lock);
-        &item->is_aio_read = true;
+        item->is_aio_read = true;
         move_to_front(item);
         pthread_mutex_unlock(&cache->lock);
 
-        return;
+        return 0;
     }
 
  not_in_cache:
-    promotion_candidate_item_t *candidate = p_list->hashtable[hash_with_fid(fid)];
+    candidate = p_list->hashtable[hash_with_fid(&fid)];
     
     if (candidate) {
 
-        while(!entry_id_equal(fid, candidate->fid)) {
+        while(!entry_id_equal(&fid, &candidate->fid)) {
             candidate = candidate->hash_next;
             if(candidate == NULL) {
                 goto not_in_list;
             }
         }
 
-        pthread_mutex_lock(&list->lock);
-        &candidate->is_aio_read = true;
-        pthread_mutex_unlock(&list->lock);
+        pthread_mutex_lock(&p_list->lock);
+        candidate->is_aio_read = true;
+        pthread_mutex_unlock(&p_list->lock);
 
-        return;
+        return 0;
     }
  
  not_in_list:
     DisplayLog(LVL_DEBUG, "handle_aio_read_error",
-                    "Error occured while handling aio_read type record: " DFID "", PFID(fid));
-    return;
+                    "Error occured while handling aio_read type record: " DFID "", PFID(&fid));
+    return -1;
 }
 
-static void handle_aio_write(entry_id_t fid, realtime_record_t record) {
-    
-    pcc_item_t *item = cache->hashtable[hash_with_fid(fid)];
+static int handle_aio_write(entry_id_t fid, realtime_record_t record) 
+{
+    pcc_item_t *item = cache->hashtable[hash_with_fid(&fid)];
+    promotion_candidate_item_t *candidate;
     
     if (item) {
 
-        while(!entry_id_equal(fid, item->fid)) {
+        while(!entry_id_equal(&fid, &item->fid)) {
             item = item->hash_next;
             if(item == NULL) {
                 goto not_in_cache;
@@ -605,45 +633,46 @@ static void handle_aio_write(entry_id_t fid, realtime_record_t record) {
         }
 
         pthread_mutex_lock(&cache->lock);
-        &item->is_aio_read = false;
+        item->is_aio_read = false;
         move_to_front(item);
         pthread_mutex_unlock(&cache->lock);
 
-        return;
+        return 0;
     }
 
  not_in_cache:
-    promotion_candidate_item_t *candidate = p_list->hashtable[hash_with_fid(fid)];
+    candidate = p_list->hashtable[hash_with_fid(&fid)];
     
     if (candidate) {
 
-        while(!entry_id_equal(fid, candidate->fid)) {
+        while(!entry_id_equal(&fid, &candidate->fid)) {
             candidate = candidate->hash_next;
             if(candidate == NULL) {
                 goto not_in_list;
             }
         }
 
-        pthread_mutex_lock(&list->lock);
-        &candidate->is_aio_read = false;
-        pthread_mutex_unlock(&list->lock);
+        pthread_mutex_lock(&p_list->lock);
+        candidate->is_aio_read = false;
+        pthread_mutex_unlock(&p_list->lock);
 
-        return;
+        return 0;
     }
  
  not_in_list:
     DisplayLog(LVL_DEBUG, "handle_aio_write_error",
-                    "Error occured while handling aio_write type record: " DFID "", PFID(fid));
-    return;
+                    "Error occured while handling aio_write type record: " DFID "", PFID(&fid));
+    return -1;
 }
 
-static void handle_aio_return(entry_id_t fid, realtime_record_t record) {
-    
-    pcc_item_t *item = cache->hashtable[hash_with_fid(fid)];
+static int handle_aio_return(entry_id_t fid, realtime_record_t record) 
+{
+    pcc_item_t *item = cache->hashtable[hash_with_fid(&fid)];
+    promotion_candidate_item_t *candidate;
     
     if (item) {
 
-        while(!entry_id_equal(fid, item->fid)) {
+        while(!entry_id_equal(&fid, &item->fid)) {
             item = item->hash_next;
             if(item == NULL) {
                 goto not_in_cache;
@@ -651,50 +680,51 @@ static void handle_aio_return(entry_id_t fid, realtime_record_t record) {
         }
 
         pthread_mutex_lock(&cache->lock);
-        if(&item->aio_read) {
-            &item->rbyte += record.size;
+        if(item->is_aio_read) {
+            item->rbyte += record.size;
         } else {
-            &item->wbyte += record.size;
-            &item->size += record.size;
+            item->wbyte += record.size;
+            item->size += record.size;
         }
         pthread_mutex_unlock(&cache->lock);
 
-        return;
+        return 0;
     }
 
  not_in_cache:
-    promotion_candidate_item_t *candidate = p_list->hashtable[hash_with_fid(fid)];
+    candidate = p_list->hashtable[hash_with_fid(&fid)];
     
     if (candidate) {
 
-        while(!entry_id_equal(fid, candidate->fid)) {
+        while(!entry_id_equal(&fid, &candidate->fid)) {
             candidate = candidate->hash_next;
             if(candidate == NULL) {
                 goto not_in_list;
             }
         }
 
-        pthread_mutex_lock(&list->lock);
-        if(&candidate->is_aio_read) {
-            &candidate->rbyte += record.size;
+        pthread_mutex_lock(&p_list->lock);
+        if(candidate->is_aio_read) {
+            candidate->rbyte += record.size;
         } else {
-            &candidate->wbyte += record.size;
-            &candidate->size += record.size;
+            candidate->wbyte += record.size;
+            candidate->size += record.size;
         }
-        pthread_mutex_unlock(&list->lock);
+        pthread_mutex_unlock(&p_list->lock);
 
-        return;
+        return 0;
     }
  
  not_in_list:
     DisplayLog(LVL_DEBUG, "handle_aio_return_error",
-                    "Error occured while handling aio_return type record: " DFID "", PFID(fid));
-    return;
+                    "Error occured while handling aio_return type record: " DFID "", PFID(&fid));
+    return -1;
 }
 
-static void *realtime_record_reader_thr(void *arg) {
-    
+static void *realtime_record_reader_thr(void *arg) 
+{
     head_t *head = (head_t *)arg;
+    struct stat statbuf;
     int rc;
 
     while (1) {
@@ -715,7 +745,7 @@ static void *realtime_record_reader_thr(void *arg) {
 
                 // Assuming llapi_path2fid is implemented elsewhere
                 entry_id_t fid;
-                rc = Lustre_GetFidFromPath(record.path, &fid, NULL);
+                Lustre_GetFidFromPath(record.path, &fid);
 
                 // Operation specific processing (pseudo-code)
                 switch (record.type) {
@@ -727,14 +757,17 @@ static void *realtime_record_reader_thr(void *arg) {
                     case POSIX_CREATE:
                     case POSIX_CREATE64:
 
-                        struct stat statbuf;
                         if(stat(record.path, &statbuf) != 0) {
                             DisplayLog(LVL_CRIT, "stat_error", "failed to get stat of the file %s", record.path);
-                            exit(EX_UNAVAILABLE)
+                            exit(EX_UNAVAILABLE);
                         }
                         record.size = statbuf.st_size;
                         // Handle 'open' operation
-                        handle_open(fid, record);
+                        rc = handle_open(fid, record);
+                        if(rc != 0) {
+                            DisplayLog(LVL_CRIT, "HandleOpenFailed",
+                                       "Error occured why handle_open");
+                        }
                         break;
                     
                     case POSIX_READ:
@@ -746,13 +779,21 @@ static void *realtime_record_reader_thr(void *arg) {
                     case POSIX_PREADV2:
                     case POSIX_PREADV64V2:
                         // Handle 'read' operation
-                        handle_read(fid, record);
+                        rc = handle_read(fid, record);
+                        if(rc != 0) {
+                            DisplayLog(LVL_CRIT, "HandleReadFailed",
+                                       "Error occured why handle_read");
+                        }
                         break;
 
                     case POSIX_AIO_READ:
                     case POSIX_AIO_READ64:
                         // Handle 'aio_read' operation
-                        handle_aio_read(fid, record);
+                        rc = handle_aio_read(fid, record);
+                        if(rc != 0) {
+                            DisplayLog(LVL_CRIT, "HandleAIOReadFailed",
+                                       "Error occured why handle_aio_read");
+                        }
                         break;
                     
                     case POSIX_WRITE:
@@ -764,24 +805,40 @@ static void *realtime_record_reader_thr(void *arg) {
                     case POSIX_PWRITEV2:
                     case POSIX_PWRITEV64V2:
                         // Handle 'write' operation
-                        handle_write(fid, record);
+                        rc = handle_write(fid, record);
+                        if(rc != 0) {
+                            DisplayLog(LVL_CRIT, "HandleWriteFailed",
+                                       "Error occured why handle_write");
+                        }
                         break;
 
                     case POSIX_AIO_WRITE:
                     case POSIX_AIO_WRITE64:
                         // Handle 'aio_write' operation
-                        handle_aio_write(fid, record);
+                        rc = handle_aio_write(fid, record);
+                        if(rc != 0) {
+                            DisplayLog(LVL_CRIT, "HandleAIOWriteFailed",
+                                       "Error occured why handle_aio_write");
+                        }
                         break;
 
                     case POSIX_CLOSE:
                         // Handle 'close' operation
-                        handle_close(fid, record);
+                        rc = handle_close(fid, record);
+                        if(rc != 0) {
+                            DisplayLog(LVL_CRIT, "HandleCloseFailed",
+                                       "Error occured why handle_close");
+                        }
                         break;
                     
                     case POSIX_AIO_RETURN:
                     case POSIX_AIO_RETURN64:
                         // Handle 'aio_return' operation
-                        handle_aio_return(fid, record);
+                        rc = handle_aio_return(fid, record);
+                        if(rc != 0) {
+                            DisplayLog(LVL_CRIT, "HandleAIOReturnFailed",
+                                       "Error occured why handle_aio_return");
+                        }
                         break;
                     
                     default:
@@ -797,12 +854,13 @@ static void *realtime_record_reader_thr(void *arg) {
     return NULL;
 }
 
-static void promotion_thr(void *arg) {
-    
-    promotion_candidate_list_t *tmp_list;
-    promotion_candidate_item_t *fk_item;
+static void *promotion_thr(void *arg) 
+{
+    promotion_candidate_list_t *tmp_list = NULL;
+    promotion_candidate_item_t *fk_item = NULL;
     unsigned long long tmp_size;
     promotion_candidate_item_t *tmp;
+    pcc_item_t *item;
 
 
     while(1) {
@@ -840,7 +898,7 @@ static void promotion_thr(void *arg) {
             gchar **cmd_out;
             int rc;
 
-            sprintf(cmd_in, "lfs pcc attach_fid -i 1 -m /mnt/lustre " DFID, PFID(tmp->fid));
+            sprintf(cmd_in, "lfs pcc attach_fid -i 1 -m /mnt/lustre " DFID, PFID(&tmp->fid));
             g_shell_parse_argv(cmd_in, &num_args, &cmd_out, NULL);
             rc = execute_shell_command(cmd_out, cb_stderr_to_log,
                                                (void *)LVL_DEBUG);
@@ -848,8 +906,20 @@ static void promotion_thr(void *arg) {
                 DisplayLog(LVL_DEBUG, "ExeShellCmdError", "Error occured while execute_shell_command:%s", cmd_out[0]);
             } else {
                 pthread_mutex_lock(&p_list->lock);
-                remove_item_from_promotion_candidate_list(p_list, tmp);
+                rc = remove_item_from_promotion_candidate_list(p_list, tmp);
+                if(rc != 0) {
+                    DisplayLog(LVL_DEBUG, "FailedItemRemovalFromPList",
+                                "Failed to insert newly created cache item to the cache");
+                }
                 pthread_mutex_unlock(&p_list->lock);
+                pthread_mutex_lock(&cache->lock);
+                item = create_new_cache_item(&tmp->fid, tmp->size);
+                rc = insert_to_cache(cache, item);
+                if(rc != 0) {
+                    DisplayLog(LVL_DEBUG, "FailedItemInsertionToCache",
+                               "Failed to insert newly created cache item to the cache");
+                }
+                pthread_mutex_unlock(&cache->lock);
             }
 
             g_strfreev(cmd_out);
@@ -859,14 +929,17 @@ static void promotion_thr(void *arg) {
 
         rh_sleep(1);
     }
+
+    return NULL;
 }
 
-static void eviction_thr(void *arg) {
-
-    pcc_t *tmp_cache;
-    pcc_item_t *fk_item;
+static void *eviction_thr(void *arg) 
+{
+    pcc_t *tmp_cache = NULL;
+    pcc_item_t *fk_item = NULL;
     unsigned long long tmp_size, need_to_be_evicted_size;
     pcc_item_t *tmp;
+    int rc;
 
     while(1) {
         create_pcc_cache(tmp_cache);
@@ -874,9 +947,9 @@ static void eviction_thr(void *arg) {
         // Populate tmp_cache for eviction
         tmp_size = 0;
 
-        pthread_mutex_lock(cache->lock);
+        pthread_mutex_lock(&cache->lock);
         need_to_be_evicted_size = get_right_wm_capacity() - get_pcc_capacity_remaining();
-        pthread_mutex_unlock(cache->lock);
+        pthread_mutex_unlock(&cache->lock);
 
         pthread_mutex_lock(&cache->lock);
         tmp = tmp_cache->head;
@@ -886,9 +959,17 @@ static void eviction_thr(void *arg) {
                 tmp_size += tmp->size;
                 if(tmp_size < need_to_be_evicted_size) {
                     fk_item = create_new_cache_item(&tmp->fid, tmp->size);
-                    insert_to_cache(tmp_cache, fk_item);
+                    rc = insert_to_cache(tmp_cache, fk_item);
+                    if(rc != 0) {
+                        DisplayLog(LVL_DEBUG, "FailedItemInsertion",
+                                   "Failed to insert newly created cache item to the cache");
+                    }
                 } else {
-                    remove_item_from_cache(tmp_cache, fk_item);
+                    rc = remove_item_from_cache(tmp_cache, fk_item);
+                    if(rc != 0) {
+                        DisplayLog(LVL_DEBUG, "FailedItemRemoval",
+                                   "Failed to remove item from cache");
+                    }
                     break;
                 }
             }
@@ -896,14 +977,13 @@ static void eviction_thr(void *arg) {
         }
         pthread_mutex_unlock(&p_list->lock); 
 
-        tmp = tmp_list->head;
+        tmp = tmp_cache->head;
         while(tmp != NULL) {
             gchar cmd_in[1024];
             gint num_args;
             gchar **cmd_out;
-            int rc;
 
-            sprintf(cmd_in, "lfs pcc detach_fid /mnt/lustre " DFID, PFID(tmp->fid));
+            sprintf(cmd_in, "lfs pcc detach_fid /mnt/lustre " DFID, PFID(&tmp->fid));
             g_shell_parse_argv(cmd_in, &num_args, &cmd_out, NULL);
             rc = execute_shell_command(cmd_out, cb_stderr_to_log,
                                                (void *)LVL_DEBUG);
@@ -911,7 +991,7 @@ static void eviction_thr(void *arg) {
                 DisplayLog(LVL_DEBUG, "ExeShellCmdError", "Error occured while execute_shell_command:%s", cmd_out[0]);
             } else {
                 pthread_mutex_lock(&cache->lock);
-                remove_item_from_promotion_candidate_list(p_list, tmp);
+                remove_item_from_cache(cache, tmp);
                 pthread_mutex_unlock(&cache->lock);
             }
             g_strfreev(cmd_out);
@@ -921,10 +1001,12 @@ static void eviction_thr(void *arg) {
 
         rh_sleep(1);
     }
+
+    return NULL;
 }
 
-void realtime_record_reader_start(head_t *head, int *shm_fd, pthread_rwlockattr_t * attr) {
-
+void realtime_record_reader_start(head_t *head, int *shm_fd, pthread_rwlockattr_t * attr) 
+{
     pthread_t reader_thread_id;
     pthread_t promotion_thread_id;
     pthread_t eviction_thread_id;

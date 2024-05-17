@@ -8,7 +8,6 @@
 #include <stdbool.h>
 #include <pthread.h>
 
-#include "db_schema.h"
 #include "rbh_misc.h"
 
 // TODO:
@@ -61,11 +60,11 @@ enum op_type {
     POSIX_AIO_RETURN64,         
 };
 
-/* A structure storing records for real-time profiling 
-/* regarding open, read, write methods. Filename is filled only by open call.
-/* pid, fd is given for every open, read, write call. As file descriptor is not
-/* unique across multiple processes running simultaneously,
-/* use pid, fd altogether to identify the target file of read, write */
+/** A structure storing records for real-time profiling 
+ *  regarding open, read, write methods. Filename is filled only by open call.
+ *  pid, fd is given for every open, read, write call. As file descriptor is not
+ *  unique across multiple processes running simultaneously,
+ *  use pid, fd altogether to identify the target file of read, write */
 
 typedef struct realtime_record
 {
@@ -84,7 +83,7 @@ typedef struct head {
 
 typedef struct sm_segment {
     unsigned int seg_idx;
-    struct realtime_record_buf[RR_BUF_SIZE];
+    realtime_record_t realtime_record_buf[RR_BUF_SIZE];
     unsigned int role:1; 
     pthread_mutex_t l;
     struct sm_segment *next;
@@ -97,8 +96,8 @@ typedef struct promotion_candidate_item {
     unsigned long long size;                            // file size
     unsigned long long rbyte;                           // read amount after it selected as promotion candidate
     unsigned long long wbyte;                           // written amount after it selected as promotion candidate
-    promotion_candidate_item_t *prev, *next;  
-    promotion_candidate_item_t *hash_prev, *hash_next;
+    struct promotion_candidate_item *prev, *next;  
+    struct promotion_candidate_item *hash_prev, *hash_next;
 } promotion_candidate_item_t;
 
 typedef struct promotion_candidate_list {
@@ -115,8 +114,8 @@ typedef struct pcc_item {
     unsigned long long size;                        // file size
     unsigned long long rbyte;                       // read amount after cached in PCC
     unsigned long long wbyte;                       // written amount after cached in PCC
-    struct pcc_item_t *prev, *next;                 // for lru list
-    struct pcc_item_t *hash_prev, *hash_next;       // for bucket list
+    struct pcc_item *prev, *next;                 // for lru list
+    struct pcc_item *hash_prev, *hash_next;       // for bucket list
 } pcc_item_t;
 
 typedef struct pcc {
@@ -131,6 +130,8 @@ extern pcc_t *cache;
 extern promotion_candidate_list_t *p_list;
 
 void realtime_record_reader_start(head_t *, int *, pthread_rwlockattr_t *);
+pcc_item_t* create_new_cache_item(const entry_id_t *, unsigned long long);
+int insert_to_cache(pcc_t *, pcc_item_t *);
 void create_head_file(head_t *, int *, pthread_rwlockattr_t *);
 void clean_head_file(head_t *, int *, pthread_rwlockattr_t *);
 void create_pcc_cache(pcc_t *);

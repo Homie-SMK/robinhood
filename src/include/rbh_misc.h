@@ -31,6 +31,7 @@
 #include <semaphore.h>
 #include <unistd.h>
 #include "rbh_logs.h"
+#include <lustre/lustreapi.h>
 
 /* displaying FID */
 #ifndef _HAVE_FID

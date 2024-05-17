@@ -15,6 +15,7 @@
 #define _RBH_TYPE_H
 
 #include <stdint.h>
+#include "rbh_const.h"
 
 /** shorter alias for "unsigned long long" */
 typedef unsigned long long ull_t;

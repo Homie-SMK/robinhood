@@ -4,6 +4,7 @@ if CHANGELOGS
 SUBDIRS+=chglog_reader
 endif
 
+SUBDIRS += realtime_record_reader
 SUBDIRS += robinhood tools tests
 
 indent:

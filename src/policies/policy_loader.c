@@ -260,7 +260,7 @@ bool policy_exists(const char *name, int *index)
 
 static int parse_policy_decl(config_item_t config_blk, const char *block_name,
                              policy_descr_t *policy, bool *manage_deleted,
-                             const policies_t *pols, char *msg_out)
+                             policies_t *pols, char *msg_out)
 {
     int rc, prev;
     const char *name;
@@ -298,7 +298,7 @@ static int parse_policy_decl(config_item_t config_blk, const char *block_name,
     rh_strncpy(policy->name, name, sizeof(policy->name));
 
     if (strcasecmp(name, "lhsm_scan") == 0) {
-        pol->lhsm_scan_idx = pols->policy_count;
+        policies.lhsm_scan_idx = pols->policy_count;
     }
 
     /* read and parse default_action */

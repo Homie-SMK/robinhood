@@ -258,15 +258,15 @@ static int lhsm_scan(const entry_id_t *p_entry_id, attr_set_t *p_attrs,
     }
 
     // Get file stats
-    rc = stat(path, &stbuf);
+    rc = stat(ATTR(p_attrs, fullpath), &stbuf);
     if (rc != 0) {
         perror("stat failed");
         return rc;
     }
     size = (unsigned long long)stbuf.st_size;
 
-    item = create_new_cache_item_by_entry(p_entry_id, size);
-    rc = insert_to_cache(item);
+    item = create_new_cache_item(p_entry_id, size);
+    rc = insert_to_cache(cache, item);
     if (rc != 0) {
         DisplayLog(LVL_MAJOR, "CacheCheck",
                    "Failed to insert item to cache " DFID ": %s",

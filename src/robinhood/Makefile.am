@@ -23,7 +23,8 @@ all_libs += ../chglog_reader/libchglog_rd.la
 endif
 
 all_libs += ./librbhhelpers.la ../list_mgr/liblistmgr.la \
-            ../common/libcommontools.la ../cfg_parsing/libconfigparsing.la
+            ../common/libcommontools.la ../cfg_parsing/libconfigparsing.la \
+	        ../realtime_record_reader/librealtimerecordreader.la
 
 #sbin_PROGRAMS=robinhood rbh-report rbh-diff rbh-recov rbh-undelete rbh-import rbh-rebind
 sbin_PROGRAMS=robinhood rbh-report rbh-diff rbh-undelete rbh-rebind

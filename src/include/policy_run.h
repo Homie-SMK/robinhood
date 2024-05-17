@@ -124,6 +124,8 @@ static inline char *trigger2str(const trigger_item_t *trig)
         return "ost_usage";
     case TGT_POOL:
         return "pool_usage";
+    case TGT_PCC:
+        return "pcc_usage";
 #endif
     case TGT_USER:
         return "user_usage";

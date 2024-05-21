@@ -2,19 +2,11 @@
 #define _RBH_REALTIME_RECORD_READER_H
 
 #include <stdio.h>
-#include <limits.h>
 #include <unistd.h>
-#include <semaphore.h>
 #include <stdbool.h>
 #include <pthread.h>
 
 #include "rbh_misc.h"
-
-// TODO:
-// Let DBUF_MAX_SIZE be configured by autogen build system
-#ifndef DBUF_MAX_SIZE
-#define DBUF_MAX_SIZE 256
-#endif
 
 #ifndef RR_BUF_SIZE
 #define RR_BUF_SIZE 128
@@ -25,7 +17,8 @@
 #define PRODUCER 0
 #define CONSUMER 1
 
-#define EVICTION_WM 85
+#define EVICTION_WM 5
+#define PCC_PATH_MAX 10
 
 enum op_type {
     POSIX_OPEN,            
@@ -56,8 +49,10 @@ enum op_type {
     POSIX_CREATE,	    
     POSIX_CREATE64,	    
     POSIX_CLOSE,
-    POSIX_AIO_RETURN,
-    POSIX_AIO_RETURN64,         
+    POSIX_AIO_RETURN_READ,
+    POSIX_AIO_RETURN_READ64,
+    POSIX_AIO_RETURN_WRITE,
+    POSIX_AIO_RETURN_WRITE64,         
 };
 
 /** A structure storing records for real-time profiling 
@@ -68,7 +63,7 @@ enum op_type {
 
 typedef struct realtime_record
 {
-    char path[PATH_MAX];                // path
+    int fd;                // path
     enum op_type type;                  // posix operation type
     unsigned long long size;            // the size of byte read/write. Has valid value only if op_type is read/write
 } realtime_record_t;
@@ -92,7 +87,8 @@ typedef struct sm_segment {
 typedef struct promotion_candidate_item {
     entry_id_t fid;
     bool promotable;
-    bool is_aio_read;                            // for POSIX_AIO_RETURUN type operation
+    bool aio_reading;
+    bool aio_writing;                            // for POSIX_AIO_RETURUN type operation
     unsigned long long size;                            // file size
     unsigned long long rbyte;                           // read amount after it selected as promotion candidate
     unsigned long long wbyte;                           // written amount after it selected as promotion candidate
@@ -110,7 +106,8 @@ typedef struct promotion_candidate_list {
 typedef struct pcc_item {
     entry_id_t fid;                                 // lu_fid of the file 
     bool evictable;                          // whether it is evictable
-    bool is_aio_read;                        // for POSIX_AIO_RETURN type operation
+    bool aio_reading;
+    bool aio_writing;                        // for POSIX_AIO_RETURN type operation
     unsigned long long size;                        // file size
     unsigned long long rbyte;                       // read amount after cached in PCC
     unsigned long long wbyte;                       // written amount after cached in PCC
@@ -129,14 +126,14 @@ typedef struct pcc {
 extern pcc_t *cache;
 extern promotion_candidate_list_t *p_list;
 
-void realtime_record_reader_start(head_t *, int *, pthread_rwlockattr_t *);
+void realtime_record_reader_start(head_t **, int *, pthread_rwlockattr_t *);
 pcc_item_t* create_new_cache_item(const entry_id_t *, unsigned long long);
 int insert_to_cache(pcc_t *, pcc_item_t *);
-void create_head_file(head_t *, int *, pthread_rwlockattr_t *);
-void clean_head_file(head_t *, int *, pthread_rwlockattr_t *);
-void create_pcc_cache(pcc_t *);
+int create_head_file(head_t **, int *, pthread_rwlockattr_t *);
+void clean_head_file(head_t *, int, pthread_rwlockattr_t *);
+void create_pcc_cache(pcc_t **);
 void free_cache(pcc_t *);
-void create_promotion_candidate_list(promotion_candidate_list_t *);
+void create_promotion_candidate_list(promotion_candidate_list_t **);
 void free_promotion_candidate_list(promotion_candidate_list_t *);
 
 

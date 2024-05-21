@@ -13,11 +13,10 @@
 #include "list_mgr.h"
 
 // Create HEAD shared memory object
-void create_head_file(head_t *head, int *shm_fd, pthread_rwlockattr_t *attr) 
+int create_head_file(head_t **head, int *shm_fd, pthread_rwlockattr_t *attr) 
 {
-
     // Create the shared memory object
-    *shm_fd = shm_open("HEAD", O_CREAT | O_RDWR, 0666);
+    *shm_fd = shm_open("HEAD", O_CREAT | O_RDWR, 0777);
     if (*shm_fd == -1) {
         perror("shm_open");
         exit(EX_OSERR);
@@ -30,8 +29,8 @@ void create_head_file(head_t *head, int *shm_fd, pthread_rwlockattr_t *attr)
     }
 
     // Memory map the shared memory object
-    head = mmap(0, sizeof(head_t), PROT_READ | PROT_WRITE, MAP_SHARED, *shm_fd, 0);
-    if (head == MAP_FAILED) {
+    *head = mmap(0, sizeof(head_t), PROT_READ | PROT_WRITE, MAP_SHARED, *shm_fd, 0);
+    if (*head == MAP_FAILED) {
         perror("mmap");
         exit(EX_OSERR);
     }
@@ -41,24 +40,24 @@ void create_head_file(head_t *head, int *shm_fd, pthread_rwlockattr_t *attr)
     pthread_rwlockattr_setpshared(attr, PTHREAD_PROCESS_SHARED);
 
     // Initialize the read-write lock
-    pthread_rwlock_init(&head->rwlock, attr);
+    pthread_rwlock_init(&(*head)->rwlock, attr);
 
     // Initial structure setup
-    head->init_seg = NULL;
-    head->curr_producer_seg = NULL;
-    head->curr_consumer_seg = NULL;
-    head->next_seg_idx = 0;
+    (*head)->init_seg = NULL;
+    (*head)->curr_producer_seg = NULL;
+    (*head)->curr_consumer_seg = NULL;
+    (*head)->next_seg_idx = 0;
 
-    return;
+    return 0;
 }
 
 // Cleanup HEAD shared memory object
-void clean_head_file(head_t *head, int *shm_fd, pthread_rwlockattr_t *attr) 
+void clean_head_file(head_t *head, int shm_fd, pthread_rwlockattr_t *attr) 
 {
     pthread_rwlock_destroy(&head->rwlock);
     pthread_rwlockattr_destroy(attr);
     munmap(head, sizeof(head_t));
-    close(*shm_fd);
+    close(shm_fd);
     shm_unlink("HEAD");
 
     return;
@@ -68,55 +67,41 @@ void clean_head_file(head_t *head, int *shm_fd, pthread_rwlockattr_t *attr)
 // TODO need to add pcc_path field in global_config
 static unsigned long long get_pcc_capacity_remaining(void)
 {
-    struct statfs *stfs = NULL;
-    char traverse_path[RBH_PATH_MAX];
-    int rc;
+    struct statfs stfs;
+    char traverse_path[PCC_PATH_MAX] = "/mnt/nvme";
 
-    //rc = snprintf(traverse_path, RBH_PATH_MAX, "%s/.", global_config.fs_path);
-    rc = snprintf(traverse_path, RBH_PATH_MAX, "/mnt/nvme/.");
-    if (rc >= RBH_PATH_MAX) {
-        DisplayLog(LVL_MAJOR, "PCCpathTooLong", "Path too long: %s/.",
-                   global_config.fs_path);
-        return ENAMETOOLONG;
-    }
-/*
-    if (!CheckFSDevice(pol))
-        return ENODEV;
-*/
     /* retrieve filesystem usage info */
-    if (statfs(traverse_path, stfs) != 0) {
+    if (statfs(traverse_path, &stfs) != 0) {
         int err = errno;
-/*
-        DisplayLog(LVL_CRIT, tag(pol),
-                   "Could not make a 'df' on %s: error %d: %s",
-                   global_config.fs_path, err, strerror(err));
-        return err;
-*/
+
         DisplayLog(LVL_CRIT, "PCCstatfsError",
-                   "Could not make a 'df' on /mnt/nvme: error %d: %s",
-                   err, strerror(err));
+                   "Could not make a 'df' on /mnt/nvme: error %d: %s: %s",
+                   err, strerror(err), traverse_path);
         return err;
     }
     
-    return stfs->f_bavail * stfs->f_bsize;
+    return stfs.f_bavail * stfs.f_bsize;
 }
 
-void create_pcc_cache(pcc_t * cache) 
+void create_pcc_cache(pcc_t **cache) 
 {
-    cache = (pcc_t*)malloc(sizeof(pcc_t));
-    if (cache == NULL) {
+    *cache = (pcc_t*)malloc(sizeof(pcc_t));
+    if (*cache == NULL) {
         perror("Failed to allocate memory for LRU Cache");
         exit(EXIT_FAILURE);
     }
-    pthread_mutex_init(&cache->lock, NULL);
-    cache->head = cache->tail = NULL;
-    memset(cache->hashtable, 0, sizeof(cache->hashtable));
-    cache->capacity_remaining = get_pcc_capacity_remaining();
+    pthread_mutex_init(&(*cache)->lock, NULL);
+    (*cache)->head = (*cache)->tail = NULL;
+    memset((*cache)->hashtable, 0, sizeof((*cache)->hashtable));
+    (*cache)->capacity_remaining = get_pcc_capacity_remaining();
+
+    DisplayLog(LVL_DEBUG, "pcc_cache created",
+               "Successfully created pcc cache");
 
     return;
 }
 
-void free_cache(pcc_t* cache) 
+void free_cache(pcc_t *cache) 
 {
     pcc_item_t* current = cache->head;
     while (current) {
@@ -128,16 +113,19 @@ void free_cache(pcc_t* cache)
     free(cache);
 }
 
-void create_promotion_candidate_list(promotion_candidate_list_t *p_list) 
+void create_promotion_candidate_list(promotion_candidate_list_t **p_list) 
 {
-    p_list = (promotion_candidate_list_t *)malloc(sizeof(promotion_candidate_list_t));
-    if (p_list == NULL) {
+    *p_list = (promotion_candidate_list_t *)malloc(sizeof(promotion_candidate_list_t));
+    if (*p_list == NULL) {
         perror("Failed to allocate memory for promotion candidate list");
         exit(EXIT_FAILURE);
     }
-    p_list->head = p_list->tail = NULL;
-    memset(p_list->hashtable, 0, sizeof(p_list->hashtable)); 
-    pthread_mutex_init(&p_list->lock, NULL);
+    (*p_list)->head = (*p_list)->tail = NULL;
+    memset((*p_list)->hashtable, 0, sizeof((*p_list)->hashtable)); 
+    pthread_mutex_init(&(*p_list)->lock, NULL);
+
+    DisplayLog(LVL_DEBUG, "p_list created",
+               "Successfully created p_list");
 
     return;
 }
@@ -151,7 +139,7 @@ void free_promotion_candidate_list(promotion_candidate_list_t *p_list)
         free(temp);
     }
     pthread_mutex_destroy(&p_list->lock);
-    free(cache);
+    free(p_list);
 }
 
 pcc_item_t* create_new_cache_item(const entry_id_t *p_id, unsigned long long size) 
@@ -169,7 +157,8 @@ pcc_item_t* create_new_cache_item(const entry_id_t *p_id, unsigned long long siz
     item->evictable = true;
     item->prev = item->next = NULL;
     item->hash_prev = item->hash_next = NULL;
-    item->is_aio_read = true;
+    item->aio_reading = false;
+    item->aio_writing = false;
 
     return item;
 }
@@ -189,25 +178,18 @@ static promotion_candidate_item_t* create_new_promotion_candidate_item(const ent
     item->promotable = true;
     item->prev = item->next = NULL;
     item->hash_prev = item->hash_next = NULL;
-    item->is_aio_read = true;
+    item->aio_reading = false;
+    item->aio_writing = false;
 
     return item;
 }
 
 static unsigned long long get_right_wm_capacity(void) 
 {
-    struct statfs *stfs = NULL;
-    char traverse_path[RBH_PATH_MAX];
-    int rc;
+    struct statfs stfs;
+    char traverse_path[PCC_PATH_MAX] = "/mnt/nvme";
 
-    rc = snprintf(traverse_path, RBH_PATH_MAX, "/mnt/nvme/.");
-    if (rc >= RBH_PATH_MAX) {
-        DisplayLog(LVL_MAJOR, "PCCpathTooLong", "Path too long: %s/.",
-                   global_config.fs_path);
-        return ENAMETOOLONG;
-    }
-
-    if (statfs(traverse_path, stfs) != 0) {
+    if (statfs(traverse_path, &stfs) != 0) {
         int err = errno;
         DisplayLog(LVL_CRIT, "PCCstatfsError",
                    "Could not make a 'df' on /mnt/nvme: error %d: %s",
@@ -215,7 +197,7 @@ static unsigned long long get_right_wm_capacity(void)
         return err;
     }
 
-    return (stfs->f_blocks / 100) * (100 - EVICTION_WM);
+    return (stfs.f_blocks / 100) * (100 - EVICTION_WM);
 }
 
 static unsigned int hash_with_fid(const entry_id_t *fid) 
@@ -586,7 +568,7 @@ static int handle_aio_read(entry_id_t fid, realtime_record_t record)
         }
 
         pthread_mutex_lock(&cache->lock);
-        item->is_aio_read = true;
+        item->aio_reading = true;
         move_to_front(item);
         pthread_mutex_unlock(&cache->lock);
 
@@ -606,14 +588,14 @@ static int handle_aio_read(entry_id_t fid, realtime_record_t record)
         }
 
         pthread_mutex_lock(&p_list->lock);
-        candidate->is_aio_read = true;
+        candidate->aio_reading = true;
         pthread_mutex_unlock(&p_list->lock);
 
         return 0;
     }
  
  not_in_list:
-    DisplayLog(LVL_DEBUG, "handle_aio_read_error",
+    DisplayLog(LVL_CRIT, "handle_aio_read_error",
                     "Error occured while handling aio_read type record: " DFID "", PFID(&fid));
     return -1;
 }
@@ -633,7 +615,7 @@ static int handle_aio_write(entry_id_t fid, realtime_record_t record)
         }
 
         pthread_mutex_lock(&cache->lock);
-        item->is_aio_read = false;
+        item->aio_writing = true;
         move_to_front(item);
         pthread_mutex_unlock(&cache->lock);
 
@@ -653,7 +635,7 @@ static int handle_aio_write(entry_id_t fid, realtime_record_t record)
         }
 
         pthread_mutex_lock(&p_list->lock);
-        candidate->is_aio_read = false;
+        candidate->aio_writing = true;
         pthread_mutex_unlock(&p_list->lock);
 
         return 0;
@@ -665,7 +647,7 @@ static int handle_aio_write(entry_id_t fid, realtime_record_t record)
     return -1;
 }
 
-static int handle_aio_return(entry_id_t fid, realtime_record_t record) 
+static int handle_aio_return_read(entry_id_t fid, realtime_record_t record) 
 {
     pcc_item_t *item = cache->hashtable[hash_with_fid(&fid)];
     promotion_candidate_item_t *candidate;
@@ -680,11 +662,14 @@ static int handle_aio_return(entry_id_t fid, realtime_record_t record)
         }
 
         pthread_mutex_lock(&cache->lock);
-        if(item->is_aio_read) {
+        if(item->aio_reading) {
             item->rbyte += record.size;
+            item->aio_reading = false;
         } else {
-            item->wbyte += record.size;
-            item->size += record.size;
+            pthread_mutex_unlock(&cache->lock);
+            DisplayLog(LVL_DEBUG, "handle_aio_return_read_error",
+                    "[CACHE] aio_return_read perceived with no aio_read beforehand: " DFID "", PFID(&fid));
+            return -1;
         }
         pthread_mutex_unlock(&cache->lock);
 
@@ -704,11 +689,14 @@ static int handle_aio_return(entry_id_t fid, realtime_record_t record)
         }
 
         pthread_mutex_lock(&p_list->lock);
-        if(candidate->is_aio_read) {
+        if(candidate->aio_reading) {
             candidate->rbyte += record.size;
+            candidate->aio_reading = false;
         } else {
-            candidate->wbyte += record.size;
-            candidate->size += record.size;
+            pthread_mutex_lock(&p_list->lock);
+            DisplayLog(LVL_DEBUG, "handle_aio_return_read_error",
+                    "[P_LIST] aio_return_read perceived with no aio_read beforehand " DFID "", PFID(&fid));
+            return -1;
         }
         pthread_mutex_unlock(&p_list->lock);
 
@@ -716,14 +704,79 @@ static int handle_aio_return(entry_id_t fid, realtime_record_t record)
     }
  
  not_in_list:
-    DisplayLog(LVL_DEBUG, "handle_aio_return_error",
-                    "Error occured while handling aio_return type record: " DFID "", PFID(&fid));
+    DisplayLog(LVL_DEBUG, "handle_aio_return_read_error",
+                    "No item created either in cache or p_list for aio_return_read type record: " DFID "", PFID(&fid));
+    return -1;
+}
+
+static int handle_aio_return_write(entry_id_t fid, realtime_record_t record) 
+{
+    pcc_item_t *item = cache->hashtable[hash_with_fid(&fid)];
+    promotion_candidate_item_t *candidate;
+    
+    if (item) {
+
+        while(!entry_id_equal(&fid, &item->fid)) {
+            item = item->hash_next;
+            if(item == NULL) {
+                goto not_in_cache;
+            }
+        }
+
+        pthread_mutex_lock(&cache->lock);
+        if(item->aio_writing) {
+            item->wbyte += record.size;
+            item->size += record.size;
+            item->aio_writing = false;
+        } else {
+            pthread_mutex_unlock(&cache->lock);
+            DisplayLog(LVL_DEBUG, "handle_aio_return_write_error",
+                    "[CACHE] aio_return_write perceived with no aio_write beforehand: " DFID "", PFID(&fid));
+            return -1;
+        }
+        pthread_mutex_unlock(&cache->lock);
+
+        return 0;
+    }
+
+ not_in_cache:
+    candidate = p_list->hashtable[hash_with_fid(&fid)];
+    
+    if (candidate) {
+
+        while(!entry_id_equal(&fid, &candidate->fid)) {
+            candidate = candidate->hash_next;
+            if(candidate == NULL) {
+                goto not_in_list;
+            }
+        }
+
+        pthread_mutex_lock(&p_list->lock);
+        if(candidate->aio_writing) {
+            candidate->wbyte += record.size;
+            candidate->size += record.size;
+            candidate->aio_writing = false;
+        } else {
+            pthread_mutex_lock(&p_list->lock);
+            DisplayLog(LVL_DEBUG, "handle_aio_return_write_error",
+                    "[P_LIST] aio_return_write perceived with no aio_write beforehand " DFID "", PFID(&fid));
+            return -1;
+        }
+        pthread_mutex_unlock(&p_list->lock);
+
+        return 0;
+    }
+ 
+ not_in_list:
+    DisplayLog(LVL_DEBUG, "handle_aio_return_write_error",
+                    "No item created either in cache or p_list for aio_return_write type record: " DFID "", PFID(&fid));
     return -1;
 }
 
 static void *realtime_record_reader_thr(void *arg) 
 {
-    head_t *head = (head_t *)arg;
+    head_t **tmp = (head_t **)arg;
+    head_t *head = *tmp;
     struct stat statbuf;
     int rc;
 
@@ -745,7 +798,7 @@ static void *realtime_record_reader_thr(void *arg)
 
                 // Assuming llapi_path2fid is implemented elsewhere
                 entry_id_t fid;
-                Lustre_GetFidFromPath(record.path, &fid);
+                Lustre_GetFidByFd(record.fd, &fid);
 
                 // Operation specific processing (pseudo-code)
                 switch (record.type) {
@@ -757,8 +810,8 @@ static void *realtime_record_reader_thr(void *arg)
                     case POSIX_CREATE:
                     case POSIX_CREATE64:
 
-                        if(stat(record.path, &statbuf) != 0) {
-                            DisplayLog(LVL_CRIT, "stat_error", "failed to get stat of the file %s", record.path);
+                        if(fstat(record.fd, &statbuf) != 0) {
+                            DisplayLog(LVL_CRIT, "stat_error", "failed to get stat of the file %d", record.fd);
                             exit(EX_UNAVAILABLE);
                         }
                         record.size = statbuf.st_size;
@@ -767,6 +820,9 @@ static void *realtime_record_reader_thr(void *arg)
                         if(rc != 0) {
                             DisplayLog(LVL_CRIT, "HandleOpenFailed",
                                        "Error occured why handle_open");
+                        } else {
+                            DisplayLog(LVL_DEBUG, "HandleOpenSuccess",
+                                        "Successful handle_open fid:" DFID, PFID(&fid));
                         }
                         break;
                     
@@ -783,6 +839,9 @@ static void *realtime_record_reader_thr(void *arg)
                         if(rc != 0) {
                             DisplayLog(LVL_CRIT, "HandleReadFailed",
                                        "Error occured why handle_read");
+                        } else {
+                            DisplayLog(LVL_DEBUG, "HandleReadSuccess",
+                                        "Successful handle_read fid:" DFID, PFID(&fid));
                         }
                         break;
 
@@ -793,6 +852,9 @@ static void *realtime_record_reader_thr(void *arg)
                         if(rc != 0) {
                             DisplayLog(LVL_CRIT, "HandleAIOReadFailed",
                                        "Error occured why handle_aio_read");
+                        } else {
+                            DisplayLog(LVL_DEBUG, "HandleAIOReadSuccess",
+                                        "Successful handle_aio_read fid:" DFID, PFID(&fid));
                         }
                         break;
                     
@@ -809,6 +871,9 @@ static void *realtime_record_reader_thr(void *arg)
                         if(rc != 0) {
                             DisplayLog(LVL_CRIT, "HandleWriteFailed",
                                        "Error occured why handle_write");
+                        } else {
+                            DisplayLog(LVL_DEBUG, "HandleWriteSuccess",
+                                        "Successful handle_write fid:" DFID, PFID(&fid));
                         }
                         break;
 
@@ -819,6 +884,9 @@ static void *realtime_record_reader_thr(void *arg)
                         if(rc != 0) {
                             DisplayLog(LVL_CRIT, "HandleAIOWriteFailed",
                                        "Error occured why handle_aio_write");
+                        } else {
+                            DisplayLog(LVL_DEBUG, "HandleAIOWriteSuccess",
+                                        "Successful handle_aio_write fid:" DFID, PFID(&fid));
                         }
                         break;
 
@@ -828,19 +896,38 @@ static void *realtime_record_reader_thr(void *arg)
                         if(rc != 0) {
                             DisplayLog(LVL_CRIT, "HandleCloseFailed",
                                        "Error occured why handle_close");
+                        } else {
+                            DisplayLog(LVL_DEBUG, "HandleCloseSuccess",
+                                        "Successful handle_close fid:" DFID, PFID(&fid));
                         }
                         break;
                     
-                    case POSIX_AIO_RETURN:
-                    case POSIX_AIO_RETURN64:
+                    case POSIX_AIO_RETURN_READ:
+                    case POSIX_AIO_RETURN_READ64:
                         // Handle 'aio_return' operation
-                        rc = handle_aio_return(fid, record);
+                        rc = handle_aio_return_read(fid, record);
                         if(rc != 0) {
-                            DisplayLog(LVL_CRIT, "HandleAIOReturnFailed",
-                                       "Error occured why handle_aio_return");
+                            DisplayLog(LVL_CRIT, "HandleAIOReturnReadFailed",
+                                       "Error occured why handle_aio_return_read");
+                        } else {
+                            DisplayLog(LVL_DEBUG, "HandleAIOReturnReadSuccess",
+                                        "Successful handle_aio_return_read fid:" DFID, PFID(&fid));
                         }
                         break;
                     
+                    case POSIX_AIO_RETURN_WRITE:
+                    case POSIX_AIO_RETURN_WRITE64:
+                        // Handle 'aio_return' operation
+                        rc = handle_aio_return_write(fid, record);
+                        if(rc != 0) {
+                            DisplayLog(LVL_CRIT, "HandleAIOReturnWriteFailed",
+                                       "Error occured why handle_aio_return_write");
+                        } else {
+                            DisplayLog(LVL_DEBUG, "HandleAIOReturnWriteSuccess",
+                                        "Successful handle_aio_return_write fid:" DFID, PFID(&fid));
+                        }
+                        break;
+
                     default:
                         break;    
                 }
@@ -848,7 +935,7 @@ static void *realtime_record_reader_thr(void *arg)
             
             pthread_mutex_lock(&consumer_seg->l);
             consumer_seg->role = PRODUCER;
-            pthread_mutex_lock(&consumer_seg->l);
+            pthread_mutex_unlock(&consumer_seg->l);
             
             pthread_rwlock_wrlock(&head->rwlock);
             head->curr_consumer_seg = NULL;
@@ -874,7 +961,7 @@ static void *promotion_thr(void *arg)
 
 
     while(1) {
-        create_promotion_candidate_list(tmp_list);
+        create_promotion_candidate_list(&tmp_list);
 
         // Populate tmp_list for promotion
         tmp_size = 0;
@@ -913,12 +1000,12 @@ static void *promotion_thr(void *arg)
             rc = execute_shell_command(cmd_out, cb_stderr_to_log,
                                                (void *)LVL_DEBUG);
             if(rc != 0) {
-                DisplayLog(LVL_DEBUG, "ExeShellCmdError", "Error occured while execute_shell_command:%s", cmd_out[0]);
+                DisplayLog(LVL_MAJOR, "ExeShellCmdError", "Error occured while execute_shell_command:%s", cmd_out[0]);
             } else {
                 pthread_mutex_lock(&p_list->lock);
                 rc = remove_item_from_promotion_candidate_list(p_list, tmp);
                 if(rc != 0) {
-                    DisplayLog(LVL_DEBUG, "FailedItemRemovalFromPList",
+                    DisplayLog(LVL_MAJOR, "FailedItemRemovalFromPList",
                                 "Failed to insert newly created cache item to the cache");
                 }
                 pthread_mutex_unlock(&p_list->lock);
@@ -926,10 +1013,14 @@ static void *promotion_thr(void *arg)
                 item = create_new_cache_item(&tmp->fid, tmp->size);
                 rc = insert_to_cache(cache, item);
                 if(rc != 0) {
-                    DisplayLog(LVL_DEBUG, "FailedItemInsertionToCache",
+                    DisplayLog(LVL_MAJOR, "FailedItemInsertionToCache",
                                "Failed to insert newly created cache item to the cache");
                 }
                 pthread_mutex_unlock(&cache->lock);
+                if(rc == 0) {
+                    DisplayLog(LVL_MAJOR, "SuccessfulPromotion",
+                               "Successfully promoted target file to pcc:" DFID, PFID(&tmp->fid));
+                }
             }
 
             g_strfreev(cmd_out);
@@ -952,7 +1043,7 @@ static void *eviction_thr(void *arg)
     int rc;
 
     while(1) {
-        create_pcc_cache(tmp_cache);
+        create_pcc_cache(&tmp_cache);
 
         // Populate tmp_cache for eviction
         tmp_size = 0;
@@ -967,7 +1058,7 @@ static void *eviction_thr(void *arg)
         while(tmp != NULL) {
             if(tmp->evictable) {
                 tmp_size += tmp->size;
-                if(tmp_size < need_to_be_evicted_size) {
+                if(need_to_be_evicted_size > 0 && tmp_size < need_to_be_evicted_size) {
                     fk_item = create_new_cache_item(&tmp->fid, tmp->size);
                     rc = insert_to_cache(tmp_cache, fk_item);
                     if(rc != 0) {
@@ -985,7 +1076,7 @@ static void *eviction_thr(void *arg)
             }
             tmp = tmp->next;            
         }
-        pthread_mutex_unlock(&p_list->lock); 
+        pthread_mutex_unlock(&cache->lock); 
 
         tmp = tmp_cache->head;
         while(tmp != NULL) {
@@ -1003,6 +1094,8 @@ static void *eviction_thr(void *arg)
                 pthread_mutex_lock(&cache->lock);
                 remove_item_from_cache(cache, tmp);
                 pthread_mutex_unlock(&cache->lock);
+                DisplayLog(LVL_DEBUG, "Successful eviction",
+                           "Successful evicted target file from pcc:" DFID, PFID(&tmp->fid));
             }
             g_strfreev(cmd_out);
 
@@ -1015,21 +1108,25 @@ static void *eviction_thr(void *arg)
     return NULL;
 }
 
-void realtime_record_reader_start(head_t *head, int *shm_fd, pthread_rwlockattr_t * attr) 
+void realtime_record_reader_start(head_t **head, int *shm_fd, pthread_rwlockattr_t *attr) 
 {
     pthread_t reader_thread_id;
     pthread_t promotion_thread_id;
     pthread_t eviction_thread_id;
     int rc;
 
-    create_head_file(head, shm_fd, attr);
+    rc = create_head_file(head, shm_fd, attr);
+    if(rc == 0) {
+        DisplayLog(LVL_MAJOR, "HEAD file created",
+                   "Successfully created HEAD file in shared memory space");
+    }
 
     rc = pthread_create(&reader_thread_id, NULL, realtime_record_reader_thr, head);
     if(rc != 0) {
         DisplayLog(LVL_CRIT, "realtime record reader failed", 
                    "Error %d creating realtime reader thread: %s", rc, strerror(rc));
     }
-    
+
     rc = pthread_create(&promotion_thread_id, NULL, promotion_thr, NULL);
     if(rc != 0) {
         DisplayLog(LVL_CRIT, "promotion thread failed", 
@@ -1041,4 +1138,6 @@ void realtime_record_reader_start(head_t *head, int *shm_fd, pthread_rwlockattr_
         DisplayLog(LVL_CRIT, "eviction thread failed", 
                    "Error %d creating eviction thread: %s", rc, strerror(rc));
     }
+
+    return;
 }

@@ -265,7 +265,7 @@ static void *stats_thr(void *arg)
     if (!ensure_db_access())
         return NULL;
 
-    DisplayLog(LVL_VERB, DIFF_TAG, "Statistics thread started");
+    DisplayLog(LVL_MAJOR, DIFF_TAG, "Statistics thread started");
 
     while (1) {
         WaitStatsInterval();

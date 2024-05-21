@@ -99,6 +99,9 @@ static unsigned int     policy_run_cpt = 0;
 
 promotion_candidate_list_t *p_list = NULL;
 pcc_t *cache = NULL; 
+head_t *head = NULL;
+int shm_fd;
+pthread_rwlockattr_t rwlockattr;
 
 /* Array of options for getopt_long().
  * Each record consists of: {const char *name, int has_arg, int *flag, int val}
@@ -548,7 +551,7 @@ static void *stats_thr(void *arg)
         lmgr_init = true;
     }
 
-    DisplayLog(LVL_VERB, MAIN_TAG, "Statistics thread started");
+    DisplayLog(LVL_MAJOR, MAIN_TAG, "Statistics thread started");
 
     WaitStatsInterval();
     while (!terminate_sig) {
@@ -751,6 +754,8 @@ static void *signal_handler_thr(void *arg)
 
             DisplayLog(LVL_MAJOR, SIGHDL_TAG, "Exiting.");
             FlushLogs();
+
+            clean_head_file(head, shm_fd, &rwlockattr);
 
             /* indicate the process terminated due to a signal */
             exit(128 + terminate_sig);
@@ -1605,10 +1610,6 @@ int main(int argc, char **argv)
     policy_opt_t lhsm_scan_policy_opt = { .target = TGT_PCC };
     const char *bin;
 
-    head_t *head = NULL;
-    int *shm_fd = NULL;
-    pthread_rwlockattr_t *rwlockattr = NULL;
-
     bin = rh_basename(argv[0]);
 
     boot_time = time(NULL);
@@ -1879,15 +1880,17 @@ int main(int argc, char **argv)
 #endif
         running_mask = 0;
     }
-
+    DisplayLog(LVL_MAJOR, "SM:", "reached here safely");
     if(!terminate_sig && action_mask & ACTION_MASK_REALTIME_RECORD) {
+        DisplayLog(LVL_MAJOR, "SM:", "entered realtime record section");
+
+        create_promotion_candidate_list(&p_list);
+        create_pcc_cache(&cache);
         
-        create_promotion_candidate_list(p_list);
-        create_pcc_cache(cache);
-        
+        DisplayLog(LVL_MAJOR, "SM:", "created p_list and cache");
+
         // Populate cache with file list already cached in PCC
-        
-        /* allocate policy_run structure */
+ /*       
         policy_run = calloc(run_count, sizeof(policy_info_t));
         if (!policy_run) {
             DisplayLog(LVL_CRIT, MAIN_TAG, "Cannot allocate memory");
@@ -1912,18 +1915,18 @@ int main(int argc, char **argv)
             DisplayLog(LVL_VERB, MAIN_TAG,
                         "Policy %s successfully initialized",
                         policies.policy_list[pol_idx].name);
-            /* Flush logs now, to have a trace in the logs */
+            
             FlushLogs();
         }
-/*
-        for(int i = 0; i < policy->config->nb_threads; i++) {
-            pthread_join(policy->threads[i], NULL);
-        }
-*/
-        pthread_join(policy->trigger_thr, NULL);
 
+        pthread_join(policy->trigger_thr, NULL);
+        DisplayLog(LVL_DEBUG, "cache population done",
+                   "Successfully populated cache with file list denoting already in cache");
+*/
         /* start realtime record reader thread */        
-        realtime_record_reader_start(head, shm_fd, rwlockattr);
+        realtime_record_reader_start(&head, &shm_fd, &rwlockattr);
+        DisplayLog(LVL_MAJOR, "SM:", "successfully started realtime_record_reader");
+
     }
 
     if (!terminate_sig && action_mask & ACTION_MASK_RUN_POLICIES) {
@@ -1978,6 +1981,9 @@ int main(int argc, char **argv)
                            policies.policy_list[pol_idx].name, rc);
             } else
                 policy_run_mask |= (1LL << i);
+            DisplayLog(LVL_MAJOR, MAIN_TAG,
+                       "%s: policy module started with its idx %d, lhsm_scan_idx is %d",
+                       policies.policy_list[pol_idx].name, pol_idx, policies.lhsm_scan_idx);
         }
         if (!(options.flags & RUNFLG_ONCE) && (policy_run_mask != 0))
             running_mask |= MODULE_MASK_POLICY_RUN;
@@ -2000,7 +2006,7 @@ int main(int argc, char **argv)
         stats_thr(&running_mask);
 
         /* should never return */
-        clean_head_file(head, shm_fd, rwlockattr);
+        clean_head_file(head, shm_fd, &rwlockattr);
         exit(1);
     } else {
         DisplayLog(LVL_MAJOR, MAIN_TAG, "All tasks done! Exiting.");

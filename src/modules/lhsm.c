@@ -1186,7 +1186,7 @@ action_func_t mod_get_action(const char *action_name)
     else if (strcmp(action_name, "lhsm.hsm_remove") == 0
              || strcmp(action_name, "lhsm.remove") == 0)
         return lhsm_remove;
-    else if (strcmp(action_name, "lhsn.scan") == 0)
+    else if (strcmp(action_name, "lhsm.scan") == 0)
         return lhsm_scan;
     else
         return NULL;

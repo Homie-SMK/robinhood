@@ -291,6 +291,7 @@ static const struct trig_target_def target_defs[] = {
     /* periodic and scheduled are synonymes */
     {"periodic", TRIG_ALWAYS, TGT_FS, false},
     {"scheduled", TRIG_ALWAYS, TGT_FS, false},
+    {"pcc_usage", TRIG_ALWAYS, TGT_PCC, false},
 
     {"global_usage", TRIG_CONDITION, TGT_FS, false},
     {"user_usage", TRIG_CONDITION, TGT_USER, true},
